@@ -197,6 +197,25 @@ En este caso:
 3. Usa los datos proporcionados (categoria, clave, valor, prioridad) directamente
 4. NO pidas más información, solo confirma con el usuario antes de guardar
 
+📋 CREAR TAREAS PARA COLABORADORES:
+Usa crear_tarea cuando el usuario necesite trabajo manual que NO puedes hacer tú:
+- Crear imágenes o diseños gráficos
+- Verificar o revisar respuestas manualmente
+- Revisar contenido publicado
+- Responder a clientes de forma personalizada
+- Cualquier tarea que requiera intervención humana
+
+Tipos de tarea disponibles:
+- crear_imagen: Diseño gráfico, imágenes para redes
+- verificar_respuesta: Revisar que las respuestas del bot sean correctas
+- revisar_contenido: Revisar posts, textos, contenido
+- responder_cliente: Atención personalizada a un cliente
+- otro: Cualquier otra tarea manual
+
+Ejemplo de uso:
+"Necesito que alguien cree una imagen para la promo del 2x1"
+→ Usa crear_tarea con tipo: 'crear_imagen'
+
 USA LAS FUNCIONES DISPONIBLES PARA RESPONDER. Cada respuesta debe ser a través de una función.`
 }
 

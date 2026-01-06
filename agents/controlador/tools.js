@@ -351,6 +351,57 @@ export const tools = [
         additionalProperties: false
       }
     }
+  },
+
+  // 7. CREAR TAREA - Para asignar trabajo a colaboradores
+  {
+    type: 'function',
+    function: {
+      name: 'crear_tarea',
+      description: 'Crear una tarea para un colaborador humano. Usar cuando se necesita trabajo manual como: crear imágenes, verificar respuestas, revisar contenido, etc.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        properties: {
+          mensaje: {
+            type: 'string',
+            description: 'Mensaje confirmando la creación de la tarea'
+          },
+          tarea: {
+            type: 'object',
+            description: 'Datos de la tarea a crear',
+            properties: {
+              titulo: {
+                type: 'string',
+                description: 'Título breve y descriptivo de la tarea'
+              },
+              descripcion: {
+                type: ['string', 'null'],
+                description: 'Descripción detallada de lo que se debe hacer'
+              },
+              tipo: {
+                type: 'string',
+                enum: ['crear_imagen', 'verificar_respuesta', 'revisar_contenido', 'responder_cliente', 'otro'],
+                description: 'Tipo de tarea'
+              },
+              prioridad: {
+                type: 'string',
+                enum: ['alta', 'media', 'baja'],
+                description: 'Prioridad de la tarea'
+              },
+              fecha_limite: {
+                type: ['string', 'null'],
+                description: 'Fecha límite en formato YYYY-MM-DD (opcional)'
+              }
+            },
+            required: ['titulo', 'descripcion', 'tipo', 'prioridad', 'fecha_limite'],
+            additionalProperties: false
+          }
+        },
+        required: ['mensaje', 'tarea'],
+        additionalProperties: false
+      }
+    }
   }
 ]
 
@@ -437,6 +488,20 @@ export const toolResponseMapper = {
       agenteDestino: args.agente_destino,
       razon: args.razon,
       datosParaDelegar: args.datos_contexto
+    }
+  }),
+
+  /**
+   * Crear tarea para colaborador
+   * @param {Object} args - { mensaje: string, tarea: object }
+   * @returns {{ tipo: 'crear_tarea', contenido: string, tarea: object }}
+   */
+  crear_tarea: (args) => ({
+    tipo: 'crear_tarea',
+    contenido: args.mensaje,
+    tarea: {
+      ...args.tarea,
+      creado_por_sistema: true
     }
   })
 }
