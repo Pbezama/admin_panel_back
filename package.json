@@ -1,0 +1,20 @@
+{
+  "name": "admin-panel-api",
+  "version": "1.0.0",
+  "description": "Backend API para Admin Panel - Next.js API Routes",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3001",
+    "build": "next build",
+    "start": "next start -p 3001",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.89.0",
+    "jose": "^6.1.3",
+    "next": "^16.1.1",
+    "openai": "^6.15.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3"
+  }
+}
