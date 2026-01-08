@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { verificarAutenticacion } from '@/lib/auth'
-import { obtenerTareas, crearTarea } from '@/lib/supabase'
+import { obtenerTareas, crearTarea, obtenerUsuarioPorId } from '@/lib/supabase'
+import { enviarNotificacionTarea } from '@/lib/whatsapp'
 
 // GET /api/tareas - Obtener lista de tareas
 export async function GET(request) {
@@ -64,6 +65,18 @@ export async function POST(request) {
       )
     }
 
+    // Asignado_a es obligatorio
+    if (!asignado_a) {
+      return NextResponse.json(
+        { success: false, error: 'Debes asignar la tarea a un colaborador' },
+        { status: 400 }
+      )
+    }
+
+    // Obtener datos del colaborador para el nombre_asignado
+    const colaborador = await obtenerUsuarioPorId(asignado_a)
+    const nombreAsignado = colaborador.success ? colaborador.data.nombre : null
+
     const tarea = {
       titulo,
       descripcion: descripcion || null,
@@ -72,13 +85,39 @@ export async function POST(request) {
       fecha_limite: fecha_limite || null,
       id_marca: auth.usuario.id_marca,
       nombre_marca: auth.usuario.nombre_marca,
-      asignado_a: asignado_a || null,
+      asignado_a: asignado_a,
+      nombre_asignado: nombreAsignado,
       creado_por: auth.usuario.id,
       creado_por_sistema: creado_por_sistema || false
     }
 
     const resultado = await crearTarea(tarea)
-    return NextResponse.json(resultado)
+
+    // Enviar notificación WhatsApp al colaborador
+    let whatsappEnviado = false
+    let whatsappDestinatario = null
+
+    if (resultado.success && colaborador.success && colaborador.data.telefono) {
+      try {
+        const whatsappResult = await enviarNotificacionTarea(
+          colaborador.data.telefono,
+          colaborador.data.nombre
+        )
+        if (whatsappResult.success) {
+          whatsappEnviado = true
+          whatsappDestinatario = colaborador.data.nombre
+          console.log(`WhatsApp enviado a ${colaborador.data.nombre} (${colaborador.data.telefono})`)
+        }
+      } catch (whatsappError) {
+        console.error('Error enviando WhatsApp (no bloquea):', whatsappError)
+      }
+    }
+
+    return NextResponse.json({
+      ...resultado,
+      whatsappEnviado,
+      whatsappDestinatario
+    })
 
   } catch (error) {
     console.error('Error en POST /api/tareas:', error)

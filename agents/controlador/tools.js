@@ -358,14 +358,14 @@ export const tools = [
     type: 'function',
     function: {
       name: 'crear_tarea',
-      description: 'Crear una tarea para un colaborador humano. Usar cuando se necesita trabajo manual como: crear imágenes, verificar respuestas, revisar contenido, etc.',
+      description: 'Crear una tarea para un colaborador humano. OBLIGATORIO asignar a un colaborador usando su ID. Usar cuando se necesita trabajo manual como: crear imágenes, verificar respuestas, revisar contenido, etc.',
       strict: true,
       parameters: {
         type: 'object',
         properties: {
           mensaje: {
             type: 'string',
-            description: 'Mensaje confirmando la creación de la tarea'
+            description: 'Mensaje confirmando la creación de la tarea y a quién se asignó'
           },
           tarea: {
             type: 'object',
@@ -392,9 +392,13 @@ export const tools = [
               fecha_limite: {
                 type: ['string', 'null'],
                 description: 'Fecha límite en formato YYYY-MM-DD (opcional)'
+              },
+              asignado_a: {
+                type: 'number',
+                description: 'ID del colaborador al que se asigna la tarea. OBLIGATORIO. Usar un ID de la lista de colaboradores disponibles.'
               }
             },
-            required: ['titulo', 'descripcion', 'tipo', 'prioridad', 'fecha_limite'],
+            required: ['titulo', 'descripcion', 'tipo', 'prioridad', 'fecha_limite', 'asignado_a'],
             additionalProperties: false
           }
         },

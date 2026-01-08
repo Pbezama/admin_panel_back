@@ -65,6 +65,21 @@ const formatearDatosParaPrompt = (datosMarca) => {
 }
 
 /**
+ * Formatea la lista de colaboradores disponibles
+ * @param {Array} colaboradores - Array de colaboradores
+ * @returns {string} Texto formateado
+ */
+const formatearColaboradores = (colaboradores) => {
+  if (!colaboradores || colaboradores.length === 0) {
+    return 'No hay colaboradores disponibles para asignar tareas.'
+  }
+
+  return colaboradores
+    .map(c => `  [ID:${c.id}] ${c.nombre}${c.telefono ? ' ✓ WhatsApp' : ''}`)
+    .join('\n')
+}
+
+/**
  * Construye el system prompt del Controlador
  * @param {Object} context - Contexto con datos de la sesión
  * @returns {string} System prompt
@@ -77,10 +92,12 @@ export const buildPrompt = (context) => {
     esSuperAdmin = false,
     datosMarca = [],
     fechaInfo = {},
-    accionPendienteActual = null
+    accionPendienteActual = null,
+    colaboradores = []
   } = context
 
   const datosFormateados = formatearDatosParaPrompt(datosMarca)
+  const colaboradoresFormateados = formatearColaboradores(colaboradores)
 
   // Info de acción pendiente si existe
   const infoPendiente = accionPendienteActual
@@ -115,6 +132,9 @@ Cuando el usuario agrega/modifica datos, está configurando cómo responderá es
 
 📊 DATOS ACTUALES DE LA MARCA:
 ${datosFormateados}
+
+👥 COLABORADORES DISPONIBLES PARA TAREAS:
+${colaboradoresFormateados}
 ${infoPendiente}
 
 📁 CATEGORÍAS DISPONIBLES:
@@ -205,6 +225,12 @@ Usa crear_tarea cuando el usuario necesite trabajo manual que NO puedes hacer t�
 - Responder a clientes de forma personalizada
 - Cualquier tarea que requiera intervención humana
 
+⚠️ REGLA IMPORTANTE PARA TAREAS:
+- SIEMPRE debes asignar la tarea a un colaborador usando asignado_a con su ID
+- Si el usuario NO especifica a quién asignar, PREGUNTA primero mostrando los colaboradores disponibles
+- Usa los IDs [ID:XX] de la lista de colaboradores de arriba
+- Los colaboradores con ✓ WhatsApp recibirán notificación automática
+
 Tipos de tarea disponibles:
 - crear_imagen: Diseño gráfico, imágenes para redes
 - verificar_respuesta: Revisar que las respuestas del bot sean correctas
@@ -212,9 +238,12 @@ Tipos de tarea disponibles:
 - responder_cliente: Atención personalizada a un cliente
 - otro: Cualquier otra tarea manual
 
-Ejemplo de uso:
-"Necesito que alguien cree una imagen para la promo del 2x1"
-→ Usa crear_tarea con tipo: 'crear_imagen'
+Ejemplo de flujo correcto:
+Usuario: "Necesito que alguien cree una imagen para la promo del 2x1"
+→ SI hay varios colaboradores, usa responder_texto para preguntar:
+  "¡Perfecto! Voy a crear la tarea. ¿A quién se la asigno?\\n\\n[Lista de colaboradores]"
+→ SI solo hay un colaborador, asígnala directamente usando su ID
+→ Cuando tengas el ID del colaborador, usa crear_tarea con asignado_a: ID
 
 USA LAS FUNCIONES DISPONIBLES PARA RESPONDER. Cada respuesta debe ser a través de una función.`
 }
