@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { verificarAutenticacion } from '@/lib/auth'
-import { obtenerTareas, crearTarea, obtenerUsuarioPorId } from '@/lib/supabase'
+import { obtenerTareas, crearTarea, obtenerUsuarioPorId, obtenerUsoMarca, incrementarUso, verificarOnboarding } from '@/lib/supabase'
 import { enviarNotificacionTarea } from '@/lib/whatsapp'
+import { puedeRealizarAccion, getMensajeLimite, LIMITES } from '@/lib/limites'
 
 // GET /api/tareas - Obtener lista de tareas
 export async function GET(request) {
@@ -55,6 +56,38 @@ export async function POST(request) {
       )
     }
 
+    // Verificar límites del plan
+    const [onboardingResult, usoResult] = await Promise.all([
+      verificarOnboarding(auth.usuario.id),
+      obtenerUsoMarca(auth.usuario.id_marca)
+    ])
+
+    const plan = onboardingResult.plan || 'gratuito'
+    const tareasUsadas = usoResult.data?.tareas_usadas || 0
+
+    // Verificar si puede crear más tareas
+    if (!puedeRealizarAccion(plan, 'tareas', tareasUsadas)) {
+      const limite = LIMITES[plan]?.tareas || 5
+      return NextResponse.json(
+        {
+          success: false,
+          error: getMensajeLimite('tareas', limite),
+          limite_excedido: true,
+          tipo: 'tareas',
+          usado: tareasUsadas,
+          limite: limite
+        },
+        { status: 403 }
+      )
+    }
+
+    // Verificar límite de colaboradores (plan gratuito no permite colaboradores)
+    const limiteColaboradores = LIMITES[plan]?.colaboradores || 0
+    if (limiteColaboradores === 0) {
+      // En plan gratuito, solo se puede asignar tareas a uno mismo
+      // Se verificará más adelante si se intenta asignar a otro usuario
+    }
+
     const body = await request.json()
     const { titulo, descripcion, tipo, prioridad, fecha_limite, asignado_a, creado_por_sistema } = body
 
@@ -92,6 +125,11 @@ export async function POST(request) {
     }
 
     const resultado = await crearTarea(tarea)
+
+    // Si se creó exitosamente, incrementar contador de uso
+    if (resultado.success) {
+      await incrementarUso(auth.usuario.id_marca, 'tareas_usadas')
+    }
 
     // Enviar notificación WhatsApp al colaborador
     let whatsappEnviado = false

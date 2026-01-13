@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { verificarAutenticacion } from '@/lib/auth'
-import { agregarDato } from '@/lib/supabase'
+import { agregarDato, obtenerUsoMarca, incrementarUso, verificarOnboarding } from '@/lib/supabase'
+import { puedeRealizarAccion, getMensajeLimite, LIMITES } from '@/lib/limites'
 
 export async function POST(request) {
   try {
@@ -21,14 +22,46 @@ export async function POST(request) {
       )
     }
 
+    const idMarca = dato['ID marca'] || auth.usuario.id_marca
+
+    // Verificar límites del plan
+    const [onboardingResult, usoResult] = await Promise.all([
+      verificarOnboarding(auth.usuario.id),
+      obtenerUsoMarca(idMarca)
+    ])
+
+    const plan = onboardingResult.plan || 'gratuito'
+    const datosUsados = usoResult.data?.datos_usados || 0
+
+    // Verificar si puede agregar más datos
+    if (!puedeRealizarAccion(plan, 'datos', datosUsados)) {
+      const limite = LIMITES[plan]?.datos || 5
+      return NextResponse.json(
+        {
+          success: false,
+          error: getMensajeLimite('datos', limite),
+          limite_excedido: true,
+          tipo: 'datos',
+          usado: datosUsados,
+          limite: limite
+        },
+        { status: 403 }
+      )
+    }
+
     // Asegurar que tenga ID de marca
     const datoConMarca = {
       ...dato,
-      'ID marca': dato['ID marca'] || auth.usuario.id_marca,
+      'ID marca': idMarca,
       'Nombre marca': dato['Nombre marca'] || auth.usuario.nombre_marca
     }
 
     const resultado = await agregarDato(datoConMarca)
+
+    // Si se agregó exitosamente, incrementar contador de uso
+    if (resultado.success) {
+      await incrementarUso(idMarca, 'datos_usados')
+    }
 
     return NextResponse.json(resultado)
 

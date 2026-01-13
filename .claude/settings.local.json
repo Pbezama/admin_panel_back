@@ -8,7 +8,14 @@
       "Bash(git remote add:*)",
       "Bash(git branch:*)",
       "Bash(git push:*)",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "Bash(npm run build:*)",
+      "Bash(wc:*)",
+      "Bash(npm install:*)",
+      "Bash(npx tailwindcss:*)",
+      "Bash(copy:*)",
+      "Bash(npm run dev:*)",
+      "Bash(findstr:*)"
     ]
   }
 }

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { loginUsuario } from '@/lib/supabase'
+import { loginUsuario, obtenerEstadoUsuario } from '@/lib/supabase'
 import { crearToken } from '@/lib/auth'
 
 export async function POST(request) {
@@ -37,10 +37,25 @@ export async function POST(request) {
     // Excluir contraseña del usuario retornado
     const { contrasena: _, ...usuarioSinPassword } = resultado.usuario
 
+    // Obtener estado de onboarding y límites
+    const estado = await obtenerEstadoUsuario(
+      resultado.usuario.id,
+      resultado.usuario.id_marca
+    )
+
     return NextResponse.json({
       success: true,
       token: tokenResult.token,
-      usuario: usuarioSinPassword
+      usuario: {
+        ...usuarioSinPassword,
+        plan: estado.plan || 'gratuito',
+        onboarding_completado: estado.onboarding_completado || false
+      },
+      onboarding: {
+        completado: estado.onboarding_completado || false,
+        requiere_onboarding: !estado.onboarding_completado,
+        tiene_facebook: estado.tiene_facebook || false
+      }
     })
 
   } catch (error) {
