@@ -62,8 +62,8 @@ export async function PUT(request) {
       )
     }
 
-    // Verificar que pertenece a la marca del usuario
-    if (publicacion.data['ID marca'] != auth.usuario.id_marca) {
+    // Verificar que pertenece a la marca del usuario (super admin tiene acceso via override de id_marca)
+    if (!auth.usuario.es_super_admin && publicacion.data['ID marca'] != auth.usuario.id_marca) {
       return NextResponse.json(
         { success: false, error: 'No tienes permisos para modificar esta publicación' },
         { status: 403 }

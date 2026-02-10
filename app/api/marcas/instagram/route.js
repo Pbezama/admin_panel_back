@@ -1,7 +1,12 @@
 import { NextResponse } from 'next/server'
 import { verificarAutenticacion } from '@/lib/auth'
-import { obtenerLogsComentarios } from '@/lib/supabase'
+import { obtenerMarcasDesdeInstagram } from '@/lib/supabase'
 
+/**
+ * GET /api/marcas/instagram
+ * Retorna marcas desde cuentas_instagram con id_marca mapeado via cuentas_facebook.
+ * Solo accesible por super admin.
+ */
 export async function GET(request) {
   try {
     const auth = await verificarAutenticacion(request)
@@ -12,19 +17,18 @@ export async function GET(request) {
       )
     }
 
-    const { searchParams } = new URL(request.url)
-    const idMarca = searchParams.get('idMarca') || auth.usuario.id_marca
-    const limite = parseInt(searchParams.get('limite')) || 100
+    if (!auth.usuario.es_super_admin) {
+      return NextResponse.json(
+        { success: false, error: 'Acceso denegado' },
+        { status: 403 }
+      )
+    }
 
-    const resultado = await obtenerLogsComentarios(
-      idMarca,
-      limite
-    )
-
+    const resultado = await obtenerMarcasDesdeInstagram()
     return NextResponse.json(resultado)
 
   } catch (error) {
-    console.error('Error en /api/comments:', error)
+    console.error('Error en /api/marcas/instagram:', error)
     return NextResponse.json(
       { success: false, error: error.message },
       { status: 500 }

@@ -14,10 +14,9 @@ export async function POST(request) {
 
     const { filtros } = await request.json()
 
-    // Usar marca del usuario si no es super admin
     const opciones = {
       ...filtros,
-      idMarca: auth.usuario.es_super_admin ? filtros?.idMarca : auth.usuario.id_marca
+      idMarca: filtros?.idMarca || auth.usuario.id_marca
     }
 
     const resultado = await consultarComentarios(opciones)
