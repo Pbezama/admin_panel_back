@@ -17,9 +17,16 @@ export async function GET(request) {
 
     const { searchParams } = new URL(request.url)
     const estado = searchParams.get('estado')
+    const marcaIdParam = searchParams.get('marca_id')
+
+    // Super admin puede ver tareas de otra marca
+    let idMarca = auth.usuario.id_marca
+    if (marcaIdParam && auth.usuario.es_super_admin) {
+      idMarca = parseInt(marcaIdParam)
+    }
 
     const opciones = {
-      idMarca: auth.usuario.id_marca,
+      idMarca,
       asignadoA: auth.usuario.id,
       tipoUsuario: auth.usuario.tipo_usuario,
       estado: estado || undefined
@@ -107,7 +114,9 @@ export async function POST(request) {
     }
 
     // Obtener datos del colaborador para el nombre_asignado
-    const colaborador = await obtenerUsuarioPorId(asignado_a)
+    console.log(`[TAREA] Buscando colaborador con ID: ${asignado_a} (tipo: ${typeof asignado_a})`)
+    const colaborador = await obtenerUsuarioPorId(parseInt(asignado_a))
+    console.log(`[TAREA] Colaborador encontrado:`, colaborador)
     const nombreAsignado = colaborador.success ? colaborador.data.nombre : null
 
     const tarea = {
@@ -135,7 +144,9 @@ export async function POST(request) {
     let whatsappEnviado = false
     let whatsappDestinatario = null
 
-    if (resultado.success && colaborador.success && colaborador.data.telefono) {
+    console.log(`[TAREA] Verificando WhatsApp: resultado.success=${resultado.success}, colaborador.success=${colaborador.success}, telefono=${colaborador.data?.telefono}`)
+
+    if (resultado.success && colaborador.success && colaborador.data?.telefono) {
       try {
         const whatsappResult = await enviarNotificacionTarea(
           colaborador.data.telefono,
