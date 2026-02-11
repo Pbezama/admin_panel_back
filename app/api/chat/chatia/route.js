@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { verificarAutenticacion } from '@/lib/auth'
 import { createAgentManager } from '@/services/agentManager'
 import { obtenerFechaActual } from '@/lib/openai'
+import { obtenerConocimientoAprobado } from '@/lib/supabase'
 
 export async function POST(request) {
   try {
@@ -27,12 +28,18 @@ export async function POST(request) {
     const agentManager = createAgentManager()
     agentManager.setAgent('chatia')
 
+    // Obtener conocimiento aprobado de la marca
+    const idMarca = auth.usuario?.id_marca
+    const conocimientoResult = await obtenerConocimientoAprobado(idMarca)
+    const conocimientoAprobado = conocimientoResult.success ? conocimientoResult.data : []
+
     // Construir contexto
     const context = {
       nombreMarca: contextoMarca?.nombreMarca || 'Marca',
       nombreUsuario: auth.usuario.nombre || 'Usuario',
       datosMarca: contextoMarca?.datosMarca || [],
-      fechaInfo: obtenerFechaActual()
+      fechaInfo: obtenerFechaActual(),
+      conocimientoAprobado
     }
 
     // Procesar mensaje

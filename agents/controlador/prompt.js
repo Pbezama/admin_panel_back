@@ -84,6 +84,32 @@ const formatearColaboradores = (colaboradores) => {
  * @param {Object} context - Contexto con datos de la sesión
  * @returns {string} System prompt
  */
+/**
+ * Formatea el conocimiento aprobado del Entrenador de Marca
+ * @param {Array} conocimiento - Array de conocimiento aprobado
+ * @returns {string} Texto formateado
+ */
+const formatearConocimientoEntrenador = (conocimiento) => {
+  if (!conocimiento || conocimiento.length === 0) return ''
+
+  const porCategoria = {}
+  conocimiento.forEach(k => {
+    const cat = k.categoria || 'otro'
+    if (!porCategoria[cat]) porCategoria[cat] = []
+    porCategoria[cat].push(k)
+  })
+
+  let texto = '\n\n🧠 CONOCIMIENTO DE MARCA (Entrenador IA):\n'
+  Object.keys(porCategoria).sort().forEach(cat => {
+    texto += `\n[${cat.toUpperCase()}]:\n`
+    porCategoria[cat].forEach(k => {
+      texto += `  - ${k.titulo}: ${k.contenido} (confianza: ${k.confianza}%)\n`
+    })
+  })
+
+  return texto
+}
+
 export const buildPrompt = (context) => {
   const {
     nombreUsuario = 'Usuario',
@@ -93,11 +119,13 @@ export const buildPrompt = (context) => {
     datosMarca = [],
     fechaInfo = {},
     accionPendienteActual = null,
-    colaboradores = []
+    colaboradores = [],
+    conocimientoAprobado = []
   } = context
 
   const datosFormateados = formatearDatosParaPrompt(datosMarca)
   const colaboradoresFormateados = formatearColaboradores(colaboradores)
+  const conocimientoFormateado = formatearConocimientoEntrenador(conocimientoAprobado)
 
   // Info de acción pendiente si existe
   const infoPendiente = accionPendienteActual
@@ -135,7 +163,7 @@ ${datosFormateados}
 
 👥 COLABORADORES DISPONIBLES PARA TAREAS:
 ${colaboradoresFormateados}
-${infoPendiente}
+${conocimientoFormateado}${infoPendiente}
 
 📁 CATEGORÍAS DISPONIBLES:
 - prompt: Personalidad e instrucciones principales de la marca

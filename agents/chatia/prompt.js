@@ -2,17 +2,45 @@
  * System Prompt del Agente ChatIA
  */
 
+/**
+ * Formatea conocimiento aprobado del Entrenador para el prompt
+ */
+const formatearConocimiento = (conocimiento) => {
+  if (!conocimiento || conocimiento.length === 0) return ''
+
+  const porCategoria = {}
+  conocimiento.forEach(k => {
+    const cat = k.categoria || 'otro'
+    if (!porCategoria[cat]) porCategoria[cat] = []
+    porCategoria[cat].push(k)
+  })
+
+  let texto = '\n\n🧠 CONOCIMIENTO PROFUNDO DE LA MARCA (Entrenador IA):\n'
+  Object.keys(porCategoria).sort().forEach(cat => {
+    texto += `\n[${cat.toUpperCase()}]:\n`
+    porCategoria[cat].forEach(k => {
+      texto += `  - ${k.titulo}: ${k.contenido}\n`
+    })
+  })
+
+  texto += '\nUsa este conocimiento para dar respuestas más informadas y específicas sobre la marca.\n'
+  return texto
+}
+
 export const buildPrompt = (context) => {
   const {
     nombreMarca = 'la marca',
     nombreUsuario = 'Usuario',
     datosMarca = [],
-    fechaInfo = {}
+    fechaInfo = {},
+    conocimientoAprobado = []
   } = context
 
   const resumenDatos = datosMarca.length > 0
     ? `La marca tiene ${datosMarca.length} datos configurados incluyendo: ${[...new Set(datosMarca.map(d => d.categoria))].join(', ')}.`
     : 'La marca aún no tiene datos configurados.'
+
+  const conocimientoTexto = formatearConocimiento(conocimientoAprobado)
 
   return `Eres ChatIA, un asistente de inteligencia artificial amigable, creativo y útil.
 Hablas en español chileno, cercano y profesional. Usas tú en vez de usted.
@@ -33,6 +61,7 @@ Eres el asistente CREATIVO del equipo. Te especializas en:
 
 📊 ESTADO DE LA MARCA:
 ${resumenDatos}
+${conocimientoTexto}
 
 🎨 TU ESTILO:
 - Sé creativo pero profesional

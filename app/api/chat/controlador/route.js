@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { verificarAutenticacion } from '@/lib/auth'
 import { createAgentManager } from '@/services/agentManager'
 import { obtenerFechaActual } from '@/lib/openai'
-import { obtenerColaboradores } from '@/lib/supabase'
+import { obtenerColaboradores, obtenerConocimientoAprobado } from '@/lib/supabase'
 
 export async function POST(request) {
   try {
@@ -28,16 +28,21 @@ export async function POST(request) {
     const agentManager = createAgentManager()
     agentManager.setAgent('controlador')
 
-    // Obtener colaboradores de la marca para asignación de tareas
+    // Obtener colaboradores y conocimiento aprobado de la marca
     const idMarca = contexto?.idMarca || auth.usuario?.id_marca
-    const colaboradoresResult = await obtenerColaboradores(idMarca)
+    const [colaboradoresResult, conocimientoResult] = await Promise.all([
+      obtenerColaboradores(idMarca),
+      obtenerConocimientoAprobado(idMarca)
+    ])
     const colaboradores = colaboradoresResult.success ? colaboradoresResult.data : []
+    const conocimientoAprobado = conocimientoResult.success ? conocimientoResult.data : []
 
-    // Agregar fecha y colaboradores al contexto
+    // Agregar fecha, colaboradores y conocimiento al contexto
     const context = {
       ...contexto,
       fechaInfo: obtenerFechaActual(),
-      colaboradores
+      colaboradores,
+      conocimientoAprobado
     }
 
     // Procesar mensaje
