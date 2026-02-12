@@ -4,7 +4,7 @@
   "description": "Backend API para Admin Panel - Next.js API Routes",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3001",
+    "dev": "next dev -p 3001 --webpack",
     "build": "next build",
     "start": "next start -p 3001",
     "lint": "next lint"
@@ -16,6 +16,7 @@
     "next": "^16.1.1",
     "openai": "^6.15.0",
     "pdf-parse": "^2.4.5",
+    "pdfkit": "^0.17.2",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "xlsx": "^0.18.5"

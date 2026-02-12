@@ -9,15 +9,14 @@ import {
   guardarConocimientoBatch,
   obtenerDocumentosMarca,
   obtenerConocimientoMarca,
-  guardarReglaPropuesta
+  guardarReglaPropuesta,
+  eliminarConocimientoPendiente,
+  eliminarReglasPropuestas
 } from '@/lib/supabase'
 
 /**
- * Procesa un archivo individual: extrae texto + agente extractor
- * @param {Buffer} buffer - Contenido del archivo
- * @param {Object} documento - Registro de documentos_marca
- * @param {string} idMarca - ID de la marca
- * @returns {Promise<{success: boolean, datos_extraidos?: Array}>}
+ * Procesa un archivo individual: extrae texto + agente extractor (GPT-4o)
+ * Incluye conocimiento existente como contexto para evitar duplicados
  */
 export async function procesarArchivo(buffer, documento, idMarca) {
   try {
@@ -35,16 +34,33 @@ export async function procesarArchivo(buffer, documento, idMarca) {
     // Guardar texto extraído
     await actualizarEstadoDocumento(documento.id, 'procesando', extraccion.texto)
 
-    // Paso 3: Agente Extractor (GPT-4o-mini)
-    const prompt = buildExtractorPrompt(documento.nombre_archivo, documento.tipo_archivo)
+    // Paso 3: Obtener conocimiento existente para contexto anti-duplicados
+    let conocimientoExistente = []
+    try {
+      const existente = await obtenerConocimientoMarca(idMarca)
+      if (existente.success && existente.data?.length > 0) {
+        conocimientoExistente = existente.data.map(k => ({
+          categoria: k.categoria,
+          titulo: k.titulo,
+          confianza: k.confianza
+        }))
+      }
+    } catch (e) {
+      console.warn('[Entrenador] No se pudo obtener conocimiento existente:', e.message)
+    }
 
-    // Truncar texto si es muy largo (máx ~100K chars para 4o-mini)
+    // Paso 4: Agente Extractor (GPT-4o)
+    const prompt = buildExtractorPrompt(documento.nombre_archivo, documento.tipo_archivo, conocimientoExistente)
+
+    // Truncar texto si es muy largo (máx ~100K chars)
     const textoTruncado = extraccion.texto.length > 100000
       ? extraccion.texto.substring(0, 100000) + '\n\n[... texto truncado por longitud ...]'
       : extraccion.texto
 
+    console.log(`[Entrenador] Extrayendo con GPT-4o | Doc: ${documento.nombre_archivo} | ${textoTruncado.length} chars | ${conocimientoExistente.length} entradas existentes`)
+
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4o',
       messages: [
         { role: 'system', content: prompt },
         { role: 'user', content: `Analiza el siguiente texto extraído del archivo:\n\n${textoTruncado}` }
@@ -62,7 +78,7 @@ export async function procesarArchivo(buffer, documento, idMarca) {
 
     const datos = JSON.parse(toolCall.function.arguments)
 
-    // Paso 4: Guardar conocimiento extraído
+    // Paso 5: Guardar conocimiento extraído
     if (datos.datos_extraidos?.length > 0) {
       const entradas = datos.datos_extraidos.map(d => ({
         id_marca: idMarca,
@@ -74,10 +90,13 @@ export async function procesarArchivo(buffer, documento, idMarca) {
         estado: 'pendiente'
       }))
 
+      console.log(`[Entrenador] Guardando ${entradas.length} entradas de conocimiento (nuevas/complementarias)`)
       await guardarConocimientoBatch(entradas)
+    } else {
+      console.log(`[Entrenador] Documento "${documento.nombre_archivo}" no aportó conocimiento nuevo`)
     }
 
-    // Paso 5: Marcar como procesado
+    // Paso 6: Marcar como procesado
     await actualizarEstadoDocumento(documento.id, 'procesado', extraccion.texto)
 
     return {
@@ -94,46 +113,83 @@ export async function procesarArchivo(buffer, documento, idMarca) {
 
 /**
  * Ejecuta el Agente Analizador con TODO el conocimiento de la marca
- * Genera mapa de conocimiento unificado + reglas BDM propuestas
- * @param {string} idMarca - ID de la marca
- * @param {string} nombreMarca - Nombre de la marca
- * @returns {Promise<{success: boolean, conocimiento?: Array, reglas_propuestas?: Array}>}
+ * 1. Limpia conocimiento pendiente anterior y reglas [IA] no aprobadas
+ * 2. Regenera mapa unificado desde documentos + conocimiento aprobado
+ * 3. Genera reglas BDM nuevas
  */
 export async function analizarMarcaCompleta(idMarca, nombreMarca) {
   try {
-    // Obtener todo el conocimiento extraído (pendiente + aprobado)
-    const conocimientoResult = await obtenerConocimientoMarca(idMarca)
-    if (!conocimientoResult.success || !conocimientoResult.data?.length) {
-      return { success: false, error: 'No hay conocimiento extraído para analizar. Sube documentos primero.' }
+    // Paso 1: Limpiar pendientes anteriores para evitar acumulación de duplicados
+    console.log(`[Entrenador] Limpiando conocimiento pendiente y reglas [IA] de marca ${idMarca}...`)
+    await eliminarConocimientoPendiente(idMarca)
+    await eliminarReglasPropuestas(idMarca)
+
+    // Paso 2: Obtener documentos procesados (texto crudo)
+    const docsResult = await obtenerDocumentosMarca(idMarca)
+    const docsProcesados = (docsResult.data || []).filter(d => d.estado === 'procesado')
+
+    if (docsProcesados.length === 0) {
+      return { success: false, error: 'No hay documentos procesados para analizar. Sube documentos primero.' }
     }
 
-    // Obtener documentos procesados para contexto
-    const docsResult = await obtenerDocumentosMarca(idMarca)
-    const docsResumen = (docsResult.data || [])
-      .filter(d => d.estado === 'procesado')
+    // Paso 3: Obtener conocimiento APROBADO (para no duplicar)
+    const aprobadoResult = await obtenerConocimientoMarca(idMarca, 'aprobado')
+    const conocimientoAprobado = aprobadoResult.success ? aprobadoResult.data || [] : []
+
+    // También incluir editados
+    const editadoResult = await obtenerConocimientoMarca(idMarca, 'editado')
+    const conocimientoEditado = editadoResult.success ? editadoResult.data || [] : []
+
+    const todoAprobado = [...conocimientoAprobado, ...conocimientoEditado]
+
+    // Paso 4: Compilar texto de documentos + conocimiento para el análisis
+    const docsResumen = docsProcesados
       .map(d => `- ${d.nombre_archivo} (${d.tipo_archivo})`)
       .join('\n')
 
-    // Formatear conocimiento existente
-    const conocimientoTexto = conocimientoResult.data
-      .map(k => `[${k.categoria}] ${k.titulo}: ${k.contenido} (confianza: ${k.confianza}%)`)
+    // Usar texto extraído de los documentos como fuente primaria
+    const textosDocumentos = docsProcesados
+      .filter(d => d.texto_extraido)
+      .map(d => {
+        const texto = d.texto_extraido.length > 30000
+          ? d.texto_extraido.substring(0, 30000) + '\n[... truncado ...]'
+          : d.texto_extraido
+        return `══ DOCUMENTO: ${d.nombre_archivo} ══\n${texto}`
+      })
       .join('\n\n')
 
-    // Agente Analizador (GPT-4o)
-    const prompt = buildAnalizadorPrompt(nombreMarca)
+    // Paso 5: Agente Analizador (GPT-4o)
+    const prompt = buildAnalizadorPrompt(nombreMarca, todoAprobado)
+
+    const mensajeUsuario = `Marca: "${nombreMarca}"
+
+Documentos procesados (${docsProcesados.length}):
+${docsResumen}
+
+═══════════════════════════════════════════════════
+CONTENIDO DE LOS DOCUMENTOS
+═══════════════════════════════════════════════════
+${textosDocumentos}
+
+═══════════════════════════════════════════════════
+INSTRUCCIÓN FINAL
+═══════════════════════════════════════════════════
+Genera el mapa de conocimiento UNIFICADO (sin duplicados, extenso y didáctico) y las reglas BDM propuestas (concisas y accionables).
+Recuerda: cada entrada de conocimiento debe tener RESUMEN + DETALLE + RECOMENDACIÓN ESTRATÉGICA (mínimo 200 palabras).
+Las reglas BDM deben ser directas e instruccionales (1-3 oraciones).`
+
+    console.log(`[Entrenador] Analizando marca "${nombreMarca}" | ${docsProcesados.length} docs | ${todoAprobado.length} conocimientos aprobados | Texto: ${mensajeUsuario.length} chars`)
 
     const response = await openai.chat.completions.create({
       model: 'gpt-4o',
       messages: [
         { role: 'system', content: prompt },
-        {
-          role: 'user',
-          content: `Documentos procesados de la marca "${nombreMarca}":\n${docsResumen}\n\nConocimiento extraído de todos los documentos:\n\n${conocimientoTexto}\n\nGenera el mapa de conocimiento unificado y las reglas BDM propuestas.`
-        }
+        { role: 'user', content: mensajeUsuario }
       ],
       tools: analizadorTools,
       tool_choice: 'required',
-      temperature: 0.4
+      temperature: 0.4,
+      max_tokens: 16000
     })
 
     const toolCall = response.choices[0]?.message?.tool_calls?.[0]
@@ -143,7 +199,7 @@ export async function analizarMarcaCompleta(idMarca, nombreMarca) {
 
     const resultado = JSON.parse(toolCall.function.arguments)
 
-    // Guardar conocimiento unificado (reemplaza pendientes anteriores)
+    // Paso 6: Guardar conocimiento unificado
     if (resultado.conocimiento?.length > 0) {
       const entradas = resultado.conocimiento.map(k => ({
         id_marca: idMarca,
@@ -155,11 +211,13 @@ export async function analizarMarcaCompleta(idMarca, nombreMarca) {
         estado: 'pendiente'
       }))
 
+      console.log(`[Entrenador] Guardando ${entradas.length} entradas de conocimiento unificado`)
       await guardarConocimientoBatch(entradas)
     }
 
-    // Guardar reglas propuestas en base_cuentas
+    // Paso 7: Guardar reglas propuestas en base_cuentas
     if (resultado.reglas_propuestas?.length > 0) {
+      console.log(`[Entrenador] Guardando ${resultado.reglas_propuestas.length} reglas BDM propuestas`)
       for (const regla of resultado.reglas_propuestas) {
         await guardarReglaPropuesta({
           id_marca: idMarca,

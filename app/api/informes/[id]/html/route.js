@@ -62,7 +62,13 @@ export async function GET(request, { params }) {
       })
     }
 
-    return new Response(resultado.data.html_informe, {
+    // Decodificar Base64 si tiene el prefijo (formato nuevo)
+    let htmlContent = resultado.data.html_informe
+    if (htmlContent.startsWith('base64:')) {
+      htmlContent = Buffer.from(htmlContent.slice(7), 'base64').toString('utf-8')
+    }
+
+    return new Response(htmlContent, {
       status: 200,
       headers: {
         'Content-Type': 'text/html; charset=utf-8',

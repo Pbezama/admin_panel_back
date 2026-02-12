@@ -150,7 +150,13 @@ export async function POST(request) {
       try {
         const whatsappResult = await enviarNotificacionTarea(
           colaborador.data.telefono,
-          colaborador.data.nombre
+          colaborador.data.nombre,
+          {
+            titulo,
+            prioridad: prioridad || 'media',
+            nombreMarca: auth.usuario.nombre_marca,
+            fechaLimite: fecha_limite || null
+          }
         )
         if (whatsappResult.success) {
           whatsappEnviado = true

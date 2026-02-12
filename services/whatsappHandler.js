@@ -28,6 +28,7 @@ import {
   ESTADOS
 } from './whatsappSessionManager'
 import { procesarMensajeControlador } from './whatsappControlador'
+import { procesarMensajeConFlujo } from './flowRouter'
 
 // Opciones del menu principal
 const MENU_OPCIONES = [
@@ -53,6 +54,21 @@ export async function procesarMensajeWhatsApp(telefono, mensaje) {
       const resultado = await procesarRespuestaAprobacion(telefono, mensaje, aprobacionPendiente)
       if (resultado.procesado) {
         return // Respuesta procesada, no continuar
+      }
+    }
+
+    // 0.5 Verificar si hay un flujo conversacional activo o trigger
+    const sesionPrevia = obtenerSesion(telefono)
+    const idMarcaFlujo = sesionPrevia?.usuario?.idMarca || null
+    if (idMarcaFlujo) {
+      const flowResult = await procesarMensajeConFlujo({
+        canal: 'whatsapp',
+        identificador: telefono,
+        mensaje,
+        idMarca: idMarcaFlujo
+      })
+      if (flowResult.handled) {
+        return // Flujo manejo el mensaje
       }
     }
 
