@@ -15,7 +15,28 @@
       "Bash(npx tailwindcss:*)",
       "Bash(copy:*)",
       "Bash(npm run dev:*)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(del \"C:\\\\Users\\\\CRECETEC\\\\Desktop\\\\Proyectos Visual\\\\admin-panel-api\\\\bp_crecetec_oauth.py\")",
+      "Bash(taskkill //F //PID 27072)",
+      "Bash(1 -n)",
+      "Bash(netstat:*)",
+      "Bash(powershell -Command:*)",
+      "Bash(cmdkey /delete:git:https://github.com)",
+      "Bash(cmdkey /list:*)",
+      "Bash(git credential-manager:*)",
+      "Bash(timeout:*)",
+      "Bash(gh auth:*)",
+      "Bash(cmdkey /delete:LegacyGeneric:target=git:https://github.com:*)",
+      "Bash(printf:*)",
+      "Bash(git credential:*)",
+      "Bash(find:*)",
+      "Bash(npx next lint:*)",
+      "Bash(node -e:*)",
+      "Bash(npx kill-port:*)",
+      "Bash(taskkill:*)",
+      "WebSearch",
+      "Bash(npx next build:*)",
+      "Bash(xargs sed:*)"
     ]
   }
 }
