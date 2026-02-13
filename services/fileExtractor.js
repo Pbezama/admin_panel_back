@@ -70,7 +70,8 @@ export async function extraerTexto(buffer, mimeType, fileName) {
 
 async function extraerPDF(buffer) {
   try {
-    const pdfParse = (await import('pdf-parse')).default
+    // pdf-parse v1: importar desde lib/ para evitar bug del test file
+    const pdfParse = (await import('pdf-parse/lib/pdf-parse.js')).default
     const data = await pdfParse(buffer)
     const texto = data.text?.trim()
     if (!texto) {

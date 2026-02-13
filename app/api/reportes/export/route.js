@@ -87,7 +87,7 @@ export async function POST(request) {
       }
     }
   } catch (error) {
-    console.error('Error en POST /api/reportes/export:', error)
-    return NextResponse.json({ success: false, error: 'Error interno del servidor' }, { status: 500 })
+    console.error('Error en POST /api/reportes/export:', error?.message, error?.stack)
+    return NextResponse.json({ success: false, error: error?.message || 'Error interno del servidor' }, { status: 500 })
   }
 }

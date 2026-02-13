@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { verificarAutenticacion } from '@/lib/auth'
-import { subirArchivoTarea } from '@/lib/supabase'
+import { subirArchivoTarea, crearNotificacionTarea } from '@/lib/supabase'
 
 // POST /api/tareas/[id]/upload - Subir archivo a una tarea
 export async function POST(request, { params }) {
@@ -35,6 +35,18 @@ export async function POST(request, { params }) {
     }
 
     const resultado = await subirArchivoTarea(buffer, parseInt(id), archivoParaSubir)
+
+    // Notificar al creador (fire-and-forget)
+    if (resultado.success) {
+      crearNotificacionTarea(
+        parseInt(id),
+        'archivo_subido',
+        'Archivo subido a tarea',
+        `${auth.usuario.nombre} subió "${archivo.name}"`,
+        auth.usuario
+      ).catch(err => console.error('Error notificación archivo:', err))
+    }
+
     return NextResponse.json(resultado)
 
   } catch (error) {

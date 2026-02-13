@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { verificarAutenticacion } from '@/lib/auth'
-import { actualizarTarea, cambiarEstadoTareaConHistorial, desactivarTarea } from '@/lib/supabase'
+import { actualizarTarea, cambiarEstadoTareaConHistorial, desactivarTarea, crearNotificacionTarea } from '@/lib/supabase'
 
 // PUT /api/tareas/[id] - Actualizar tarea
 export async function PUT(request, { params }) {
@@ -35,6 +35,20 @@ export async function PUT(request, { params }) {
       if (evidencias) updates.evidencias = evidencias
       if (notas) updates.notas = notas
       resultado = await actualizarTarea(parseInt(id), updates)
+    }
+
+    // Notificar al creador (fire-and-forget)
+    if (resultado.success) {
+      const estadoTexto = estado ? `Estado: ${estado}` : 'Tarea actualizada'
+      const tipoNotif = estado ? 'cambio_estado' : 'tarea_actualizada'
+      const tituloTarea = resultado.data?.titulo || `Tarea #${id}`
+      crearNotificacionTarea(
+        parseInt(id),
+        tipoNotif,
+        `${tituloTarea} - ${estadoTexto}`,
+        `${auth.usuario.nombre} ${estado ? `cambió el estado a "${estado}"` : 'actualizó la tarea'}`,
+        auth.usuario
+      ).catch(err => console.error('Error notificación tarea:', err))
     }
 
     return NextResponse.json(resultado)

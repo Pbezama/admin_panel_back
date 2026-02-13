@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { verificarAutenticacion } from '@/lib/auth'
-import { obtenerNotasTarea, agregarNotaTarea } from '@/lib/supabase'
+import { obtenerNotasTarea, agregarNotaTarea, crearNotificacionTarea } from '@/lib/supabase'
 
 // GET /api/tareas/[id]/notas - Obtener notas de una tarea
 export async function GET(request, { params }) {
@@ -61,6 +61,18 @@ export async function POST(request, { params }) {
     }
 
     const resultado = await agregarNotaTarea(nota)
+
+    // Notificar al creador (fire-and-forget)
+    if (resultado.success) {
+      crearNotificacionTarea(
+        parseInt(id),
+        'nota_agregada',
+        'Nueva nota en tarea',
+        `${auth.usuario.nombre} agregó una nota`,
+        auth.usuario
+      ).catch(err => console.error('Error notificación nota:', err))
+    }
+
     return NextResponse.json(resultado)
 
   } catch (error) {

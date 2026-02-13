@@ -174,8 +174,10 @@ ${textosDocumentos}
 ═══════════════════════════════════════════════════
 INSTRUCCIÓN FINAL
 ═══════════════════════════════════════════════════
-Genera el mapa de conocimiento UNIFICADO (sin duplicados, extenso y didáctico) y las reglas BDM propuestas (concisas y accionables).
-Recuerda: cada entrada de conocimiento debe tener RESUMEN + DETALLE + RECOMENDACIÓN ESTRATÉGICA (mínimo 200 palabras).
+Genera el mapa de conocimiento COMPLETO en PRIMERA PERSONA (sin duplicados, extenso y detallado) y las reglas BDM propuestas.
+Recuerda: cada entrada de conocimiento debe tener mínimo 350 palabras con QUIÉNES SOMOS + DETALLE COMPLETO + CÓMO RESPONDER.
+NUNCA resumas listas de productos, precios o FAQs. Incluye TODO el detalle.
+NUNCA hables en tercera persona. TODO en primera persona: "somos", "ofrecemos", "nuestro".
 Las reglas BDM deben ser directas e instruccionales (1-3 oraciones).`
 
     console.log(`[Entrenador] Analizando marca "${nombreMarca}" | ${docsProcesados.length} docs | ${todoAprobado.length} conocimientos aprobados | Texto: ${mensajeUsuario.length} chars`)
@@ -189,7 +191,7 @@ Las reglas BDM deben ser directas e instruccionales (1-3 oraciones).`
       tools: analizadorTools,
       tool_choice: 'required',
       temperature: 0.4,
-      max_tokens: 16000
+      max_tokens: 16384
     })
 
     const toolCall = response.choices[0]?.message?.tool_calls?.[0]
