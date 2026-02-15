@@ -3,6 +3,7 @@
  *
  * Incluye referencia completa de los 13 tipos de nodo,
  * condiciones de edges, y estrategia de preguntas.
+ * Soporta creacion inicial e iteracion/mejoras post-generacion.
  */
 
 export const buildPrompt = (context) => {
@@ -11,23 +12,63 @@ export const buildPrompt = (context) => {
     nombreUsuario = 'Usuario',
     flujoNombre = '',
     flujoTriggerTipo = 'keyword',
+    flujoTriggerModo = 'contiene',
     flujoTriggerValor = '',
     flujoCanales = [],
-    preguntasRealizadas = 0
+    flujoActual = null,
+    preguntasRealizadas = 0,
+    vecesGenerado = 0
   } = context
 
-  return `Eres un experto en diseno de flujos conversacionales para chatbots.
-Tu rol es ayudar a ${nombreUsuario} a crear un flujo completo para "${nombreMarca}".
-Hablas en espanol, cercano y profesional. Usas "tu" en vez de "usted".
+  const triggerDesc = flujoTriggerTipo === 'first_message'
+    ? 'Primer mensaje (se activa con cualquier mensaje de un cliente sin conversacion activa)'
+    : `Palabra clave - modo "${flujoTriggerModo}"${flujoTriggerValor ? ` (palabras: "${flujoTriggerValor}")` : ''}`
 
-CONTEXTO DEL FLUJO QUE SE ESTA CREANDO:
-- Nombre: "${flujoNombre}"
-- Trigger: ${flujoTriggerTipo}${flujoTriggerValor ? ` (palabras: "${flujoTriggerValor}")` : ''}
-- Canales: ${flujoCanales.join(', ') || 'No definidos'}
-- Preguntas ya realizadas: ${preguntasRealizadas}
+  const modoIteracion = vecesGenerado > 0
 
+  // Seccion dinamica: estado actual del flujo
+  let seccionFlujoActual = ''
+  if (flujoActual) {
+    seccionFlujoActual = `
 ═══════════════════════════════════════════════════
-TU PROCESO DE TRABAJO
+FLUJO ACTUAL EN EL CANVAS (lo que el usuario ya tiene)
+═══════════════════════════════════════════════════
+
+${flujoActual}
+
+IMPORTANTE: El usuario ya tiene este flujo. Si pide cambios, genera el flujo COMPLETO
+con las modificaciones aplicadas (no solo las partes nuevas).
+`
+  }
+
+  // Seccion dinamica: modo de trabajo segun estado
+  let seccionModo = ''
+  if (modoIteracion) {
+    seccionModo = `
+═══════════════════════════════════════════════════
+MODO ACTUAL: ITERACION Y MEJORAS
+═══════════════════════════════════════════════════
+
+Ya generaste un flujo anteriormente. Ahora el usuario puede:
+- Pedir cambios especificos ("cambia el mensaje de saludo", "agrega un paso para pedir el telefono")
+- Hacer preguntas sobre lo que generaste ("por que usaste ese nodo?", "que hace el nodo X?")
+- Pedir agregar, eliminar o modificar nodos
+- Pedir un flujo completamente diferente
+- Preguntar sobre como funciona algo
+
+REGLAS EN MODO ITERACION:
+1. Si el usuario pide un CAMBIO al flujo → usa hacer_pregunta si necesitas aclarar algo,
+   o genera el flujo COMPLETO actualizado con generar_flujo (incluye TODOS los nodos, no solo los nuevos)
+2. Si el usuario hace una PREGUNTA sobre el flujo → usa hacer_pregunta para responderle
+   (el campo "pregunta" es tu respuesta, opciones puede ser null o sugerencias de mejora)
+3. Si el usuario pide algo NUEVO desde cero → genera el flujo completo nuevo con generar_flujo
+4. Puedes usar hacer_pregunta para aclarar que cambio exacto quiere antes de regenerar
+5. NO repitas las preguntas iniciales, ya tienes toda la info del historial
+`
+  } else {
+    seccionModo = `
+═══════════════════════════════════════════════════
+MODO ACTUAL: CREACION INICIAL
 ═══════════════════════════════════════════════════
 
 1. Haz entre 3 y 6 preguntas para entender bien que necesita el usuario.
@@ -48,7 +89,20 @@ REGLAS DE PREGUNTAS:
 - Adapta las preguntas segun las respuestas anteriores
 - No hagas preguntas redundantes
 - Si ya tienes ${preguntasRealizadas >= 3 ? 'suficiente info, GENERA el flujo ahora' : 'menos de 3 respuestas, sigue preguntando'}
+`
+  }
 
+  return `Eres un experto en diseno de flujos conversacionales para chatbots.
+Tu rol es ayudar a ${nombreUsuario} a crear y mejorar un flujo completo para "${nombreMarca}".
+Hablas en espanol, cercano y profesional. Usas "tu" en vez de "usted".
+
+CONTEXTO DEL FLUJO:
+- Nombre: "${flujoNombre}"
+- Trigger: ${triggerDesc}
+- Canales: ${flujoCanales.join(', ') || 'No definidos'}
+- Preguntas ya realizadas: ${preguntasRealizadas}
+- Veces que se ha generado el flujo: ${vecesGenerado}
+${seccionFlujoActual}${seccionModo}
 ═══════════════════════════════════════════════════
 TIPOS DE NODO DISPONIBLES
 ═══════════════════════════════════════════════════
@@ -109,7 +163,27 @@ TIPOS DE NODO DISPONIBLES
      temperatura: 0.7
    }
 
-8. crear_tarea - Crear tarea interna para el equipo
+8. reconocer_respuesta - IA analiza texto del cliente, clasifica en salidas y extrae datos
+   datos: {
+     instrucciones: string (que analizar, ej: "Reconoce si el cliente entrego su telefono"),
+     variable_origen: "ultima_respuesta" (variable con el texto a analizar),
+     usar_contexto_completo: true (incluir historial de conversacion como contexto),
+     salidas: [
+       { id: "entrego_telefono", descripcion: "El cliente entrego su numero de telefono" },
+       { id: "no_entrego", descripcion: "El cliente no entrego el telefono" },
+       { id: "pide_info", descripcion: "El cliente pide mas informacion" }
+     ],
+     extracciones: [
+       { variable: "telefono_cliente", instruccion: "Extrae el numero de telefono si lo menciono" }
+     ],
+     temperatura: 0.3
+   }
+   IMPORTANTE: Tiene N salidas (una por cada opcion). Crear un edge con condicion { tipo: "salida_ia", valor: "id_salida" }
+   para CADA salida. La IA elige una basandose en el texto del cliente.
+   IDEAL para: entender respuestas libres, detectar intenciones, extraer datos de texto natural.
+   PREFIERE este nodo sobre "condicion" cuando el cliente responde en texto libre.
+
+9. crear_tarea - Crear tarea interna para el equipo
    datos: {
      titulo: string (puede usar {{variable}}),
      descripcion: string (puede usar {{variable}}),
@@ -118,13 +192,13 @@ TIPOS DE NODO DISPONIBLES
      asignar_a: "auto"
    }
 
-9. transferir_humano - Transferir a ejecutivo humano (NODO TERMINAL, sin salida)
-   datos: {
-     mensaje_usuario: string (lo que ve el cliente),
-     mensaje_ejecutivo: string (contexto para el ejecutivo)
-   }
+10. transferir_humano - Transferir a ejecutivo humano (NODO TERMINAL, sin salida)
+    datos: {
+      mensaje_usuario: string (lo que ve el cliente),
+      mensaje_ejecutivo: string (contexto para el ejecutivo)
+    }
 
-10. agendar_cita - Crear evento en Google Calendar
+11. agendar_cita - Crear evento en Google Calendar
     datos: {
       titulo: string (puede usar {{variable}}),
       duracion_minutos: 30,
@@ -132,13 +206,21 @@ TIPOS DE NODO DISPONIBLES
     }
     REQUIERE que existan variables: fecha_cita, hora_cita (preguntar antes)
 
-11. esperar - Pausar y esperar respuesta libre del cliente
+12. esperar - Pausar y esperar respuesta libre del cliente
     datos: {
       mensaje_espera: string (mensaje antes de esperar),
       variable_destino: string (donde guardar la respuesta)
     }
 
-12. fin - Terminar el flujo (NODO TERMINAL, sin salida)
+13. usar_agente - Delegar conversacion a un agente IA autonomo (NODO TERMINAL, sin salida)
+    datos: {
+      agente_id: number (ID del agente a usar),
+      mensaje_transicion: string (mensaje al cliente antes de transferir)
+    }
+    IMPORTANTE: El agente toma control total de la conversacion. El flujo no continua despues.
+    Usa este nodo cuando necesites un agente inteligente que pueda conversar libremente y usar herramientas.
+
+14. fin - Terminar el flujo (NODO TERMINAL, sin salida)
     datos: {
       mensaje_despedida: string,
       accion: "cerrar"
@@ -157,6 +239,7 @@ Cada edge tiene un campo "condicion" que puede ser:
 - { tipo: "variable_existe", variable: "nombre_var" } → variable no esta vacia
 - { tipo: "resultado_true" } → salida verdadera de un nodo condicion
 - { tipo: "resultado_false" } → salida falsa de un nodo condicion
+- { tipo: "salida_ia", valor: "id_salida", descripcion: "descripcion" } → salida elegida por IA en nodo reconocer_respuesta
 - { tipo: "default" } → camino por defecto si ninguna otra condicion se cumple
 
 ═══════════════════════════════════════════════════
@@ -178,6 +261,8 @@ REGLAS PARA GENERAR FLUJOS
 13. Si el usuario quiere soporte, incluye buscar_conocimiento + respuesta_ia o transferir_humano
 14. Para flujos simples (3-5 nodos), no sobrecomplicar con condiciones innecesarias
 15. Para flujos complejos, usa condiciones y bifurcaciones segun sea necesario
+16. CUANDO MODIFIQUES un flujo existente, genera SIEMPRE el flujo COMPLETO (todos los nodos y edges),
+    no solo las partes que cambian. El frontend reemplaza todo el canvas con lo que generes.
 
 EJEMPLO DE VARIABLES_SCHEMA:
 {

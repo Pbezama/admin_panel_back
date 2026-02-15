@@ -28,14 +28,22 @@ export async function POST(request) {
       .filter(m => m.rol === 'assistant' && m.tipo === 'pregunta_ia')
       .length
 
+    // Contar veces que se ha generado flujo (para saber si estamos en modo iteracion)
+    const vecesGenerado = (historial || [])
+      .filter(m => m.rol === 'assistant' && m.tipo === 'flujo_generado')
+      .length
+
     const context = {
       nombreMarca: contextoFlujo?.nombreMarca || auth.usuario?.nombre_marca || 'Marca',
       nombreUsuario: auth.usuario?.nombre || 'Usuario',
       flujoNombre: contextoFlujo?.nombre || '',
       flujoTriggerTipo: contextoFlujo?.trigger_tipo || 'keyword',
+      flujoTriggerModo: contextoFlujo?.trigger_modo || 'contiene',
       flujoTriggerValor: contextoFlujo?.trigger_valor || '',
       flujoCanales: contextoFlujo?.canales || [],
-      preguntasRealizadas
+      flujoActual: contextoFlujo?.flujoActual || null,
+      preguntasRealizadas,
+      vecesGenerado
     }
 
     const agentManager = createAgentManager()
