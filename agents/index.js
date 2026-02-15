@@ -4,11 +4,13 @@
 
 import controlador from './controlador/index.js'
 import chatia from './chatia/index.js'
+import creadorFlujos from './creador-flujos/index.js'
 
 // Registro de todos los agentes disponibles
 export const agents = {
   controlador,
-  chatia
+  chatia,
+  'creador-flujos': creadorFlujos
 }
 
 /**

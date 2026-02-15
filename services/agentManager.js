@@ -77,7 +77,7 @@ export class AgentManager {
         const mapper = agent.toolResponseMapper[functionName]
         if (mapper) {
           const result = mapper(args)
-          result.modoOrigen = this.currentAgentId === 'chatia' ? 'chatia' : 'controlador'
+          result.modoOrigen = this.currentAgentId
           console.log(`   ✅ Tipo: ${result.tipo}`)
           return result
         } else {
@@ -95,7 +95,7 @@ export class AgentManager {
       return {
         tipo: 'texto',
         contenido: message.content || 'No pude procesar tu solicitud.',
-        modoOrigen: this.currentAgentId === 'chatia' ? 'chatia' : 'controlador'
+        modoOrigen: this.currentAgentId
       }
 
     } catch (error) {
