@@ -50,6 +50,8 @@ export async function iniciarFlujo(flujo, params) {
   const { canal, identificador, idMarca, adapter, mensaje } = params
 
   console.log(`\n🔵 === Iniciando flujo: "${flujo.nombre}" ===`)
+  console.log(`   📊 Nodos (${flujo.nodos?.length}): ${flujo.nodos?.map(n => `${n.id}(${n.tipo})`).join(' → ')}`)
+  console.log(`   📊 Edges (${flujo.edges?.length}): ${flujo.edges?.map(e => `${e.origen}→${e.destino}`).join(', ')}`)
 
   // Buscar nodo inicio
   const nodoInicio = flujo.nodos.find(n => n.tipo === 'inicio')
@@ -67,6 +69,7 @@ export async function iniciarFlujo(flujo, params) {
     nodo_actual_id: nodoInicio.id,
     variables: {
       nombre_marca: flujo.nombre_marca || '',
+      id_marca_str: String(idMarca),
       canal,
       identificador_usuario: identificador
     },
@@ -212,6 +215,8 @@ async function ejecutarDesdeNodo(nodo, flujo, conversacion, adapter, mensaje) {
     // Ejecutar nodo
     const resultado = await ejecutor(nodoActual, contexto)
 
+    console.log(`   📋 Resultado ${nodoActual.tipo}: continuar=${resultado.continuar}, esperarInput=${resultado.esperarInput}, finalizarFlujo=${resultado.finalizarFlujo}`)
+
     // Actualizar variables si el ejecutor las modifico
     if (resultado.variablesActualizadas) {
       conversacion.variables = resultado.variablesActualizadas
@@ -250,10 +255,12 @@ async function ejecutarDesdeNodo(nodo, flujo, conversacion, adapter, mensaje) {
     const siguienteNodo = evaluarEdges(nodoActual, flujo, conversacion, mensaje, resultado)
 
     if (!siguienteNodo) {
-      console.log('   ⚠️ Sin siguiente nodo, finalizando')
+      console.log('   ⚠️ Sin siguiente nodo despues de', nodoActual.id, '- finalizando')
       await finalizarConversacion(conversacion.id, 'completada')
       return
     }
+
+    console.log(`   ➡️ Siguiente nodo: ${siguienteNodo.id} (${siguienteNodo.tipo})`)
 
     // Actualizar nodo actual en BD
     await actualizarConversacionFlujo(conversacion.id, {
@@ -309,6 +316,24 @@ function evaluarEdges(nodoActual, flujo, conversacion, mensaje, resultadoEjecuci
     return null
   }
 
+  // Para nodos reconocer_respuesta, usar salidaIA del resultado
+  if (nodoActual.tipo === 'reconocer_respuesta' && resultadoEjecucion.salidaIA) {
+    const salidaIA = resultadoEjecucion.salidaIA
+
+    for (const edge of edges) {
+      const cond = edge.condicion
+      if (cond && cond.tipo === 'salida_ia' && cond.valor === salidaIA) {
+        return flujo.nodos.find(n => n.id === edge.destino)
+      }
+    }
+
+    // Fallback: default edge
+    const defaultEdge = edges.find(e => e.condicion?.tipo === 'default' || !e.condicion)
+    if (defaultEdge) return flujo.nodos.find(n => n.id === defaultEdge.destino)
+
+    return null
+  }
+
   // Para otros nodos: evaluar condiciones de cada edge
   let edgeDefault = null
 
@@ -336,6 +361,11 @@ function evaluarEdges(nodoActual, flujo, conversacion, mensaje, resultadoEjecuci
         // El mensaje de WhatsApp incluye el ID del boton o el texto
         match = mensajeLower === (cond.valor || '').toLowerCase() ||
                 mensaje === cond.valor
+        break
+
+      case 'salida_ia':
+        // Usado por reconocer_respuesta cuando se evalua desde continuarFlujo
+        match = resultadoEjecucion.salidaIA === cond.valor
         break
 
       case 'variable_igual':

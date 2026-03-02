@@ -16,6 +16,7 @@ import { ejecutarTransferirHumano } from './transferirHumanoExecutor'
 import { ejecutarFin } from './finExecutor'
 import { ejecutarAgendarCita } from './agendarCitaExecutor'
 import { ejecutarEsperar } from './esperarExecutor'
+import { ejecutarReconocerRespuesta } from './reconocerRespuestaExecutor'
 
 const ejecutores = {
   inicio: ejecutarInicio,
@@ -30,7 +31,8 @@ const ejecutores = {
   transferir_humano: ejecutarTransferirHumano,
   fin: ejecutarFin,
   agendar_cita: ejecutarAgendarCita,
-  esperar: ejecutarEsperar
+  esperar: ejecutarEsperar,
+  reconocer_respuesta: ejecutarReconocerRespuesta
 }
 
 /**
@@ -57,6 +59,7 @@ export function esAutoEjecutable(nodo) {
     'crear_tarea',
     'agendar_cita',
     'ir_a_flujo',
+    'reconocer_respuesta',
     'fin'
   ]
 

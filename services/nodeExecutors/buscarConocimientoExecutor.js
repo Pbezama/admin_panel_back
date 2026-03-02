@@ -20,11 +20,14 @@ export async function ejecutarBuscarConocimiento(nodo, contexto) {
   const variableDestino = datos.variable_destino || 'resultado_busqueda'
   const maxResultados = datos.max_resultados || 5
 
+  // Usar id_marca_str de variables para evitar perdida de precision BigInt
+  const idMarca = conversacion.variables?.id_marca_str || String(conversacion.id_marca || '')
+
   try {
     let query = supabase
       .from('conocimiento_marca')
       .select('categoria, titulo, contenido, confianza')
-      .eq('id_marca', conversacion.id_marca)
+      .eq('id_marca', idMarca)
       .eq('estado', 'aprobado')
       .order('confianza', { ascending: false })
       .limit(maxResultados)

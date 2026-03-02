@@ -9,9 +9,15 @@
  * Soporta multi-canal: whatsapp, instagram, web
  */
 
-import { obtenerConversacionActiva, buscarFlujoPorTrigger } from '@/lib/supabase'
+import { obtenerConversacionActiva, buscarFlujoPorTrigger, guardarMensajeFlujo } from '@/lib/supabase'
 import { iniciarFlujo, continuarFlujo } from './flowEngine'
 import { crearWhatsAppAdapter } from './channels/whatsappAdapter'
+import { createClient } from '@supabase/supabase-js'
+
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+)
 
 /**
  * Crear adaptador segun el canal
@@ -80,8 +86,40 @@ export async function procesarMensajeConFlujo(params) {
       return await continuarFlujo(conversacion, { adapter, mensaje })
     }
 
+    // 1.5 Verificar si hay conversacion TRANSFERIDA (atendida por humano)
+    // Si la hay, guardar el mensaje para que el ejecutivo lo vea, pero NO activar IA
+    try {
+      const { data: convTransferida } = await supabase
+        .from('conversaciones_flujo')
+        .select('id')
+        .eq('canal', canal)
+        .eq('identificador_usuario', identificador)
+        .eq('estado', 'transferida')
+        .order('creado_en', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (convTransferida) {
+        console.log(`   🧑‍💼 Conversacion transferida detectada (conv: ${convTransferida.id}) - guardando mensaje sin IA`)
+
+        await guardarMensajeFlujo({
+          conversacion_id: convTransferida.id,
+          direccion: 'entrante',
+          contenido: mensaje,
+          tipo_nodo: 'respuesta_usuario',
+          nodo_id: 'transferida'
+        })
+
+        return { handled: true }
+      }
+    } catch (err) {
+      console.error('[FlowRouter] Error verificando conversacion transferida:', err.message)
+    }
+
     // 2. Buscar flujo que matchee el trigger
+    console.log(`[FlowRouter] Buscando flujo - idMarca: ${idMarca}, canal: ${canal}, mensaje: "${mensaje}"`)
     const flujoResult = await buscarFlujoPorTrigger(idMarca, canal, mensaje)
+    console.log(`[FlowRouter] Resultado busqueda:`, JSON.stringify({ success: flujoResult.success, found: !!flujoResult.data, flujoId: flujoResult.data?.id, flujoNombre: flujoResult.data?.nombre }))
 
     if (flujoResult.success && flujoResult.data) {
       const flujo = flujoResult.data
