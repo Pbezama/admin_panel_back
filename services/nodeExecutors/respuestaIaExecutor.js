@@ -83,7 +83,7 @@ export async function ejecutarRespuestaIa(nodo, contexto) {
         ]
 
         for (const cat of categoriasOrdenadas) {
-          const items = porCategoria[cat].slice(0, 8) // Max 8 por categoria
+          const items = porCategoria[cat]
           textoConocimiento += `\n[${cat.toUpperCase()}]\n`
           textoConocimiento += items.map(k => `- ${k.titulo}: ${k.contenido}`).join('\n')
         }

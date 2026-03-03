@@ -17,6 +17,7 @@ import { ejecutarFin } from './finExecutor'
 import { ejecutarAgendarCita } from './agendarCitaExecutor'
 import { ejecutarEsperar } from './esperarExecutor'
 import { ejecutarReconocerRespuesta } from './reconocerRespuestaExecutor'
+import { ejecutarUsarAgente } from './usarAgenteExecutor'
 
 const ejecutores = {
   inicio: ejecutarInicio,
@@ -32,7 +33,8 @@ const ejecutores = {
   fin: ejecutarFin,
   agendar_cita: ejecutarAgendarCita,
   esperar: ejecutarEsperar,
-  reconocer_respuesta: ejecutarReconocerRespuesta
+  reconocer_respuesta: ejecutarReconocerRespuesta,
+  usar_agente: ejecutarUsarAgente
 }
 
 /**

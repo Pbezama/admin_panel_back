@@ -12,12 +12,19 @@
 import { obtenerEjecutor, esAutoEjecutable } from './nodeExecutors/index'
 import { procesarRespuestaPregunta } from './nodeExecutors/preguntaExecutor'
 import { procesarRespuestaEsperar } from './nodeExecutors/esperarExecutor'
+import { continuarAgente } from './nodeExecutors/usarAgenteExecutor'
 import {
   crearConversacionFlujo,
   actualizarConversacionFlujo,
   finalizarConversacion,
   guardarMensajeFlujo
 } from '@/lib/supabase'
+import { createClient } from '@supabase/supabase-js'
+
+const supabaseDirecto = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+)
 
 const MAX_NODOS_AUTO = 20 // Limite de nodos auto-ejecutables consecutivos (anti-loop)
 
@@ -158,6 +165,63 @@ export async function continuarFlujo(conversacion, params) {
     if (varDestino) {
       variablesActualizadas[varDestino] = resultado.valor
     }
+  }
+
+  // === NODO USAR_AGENTE: multi-turno con agente IA (como Python) ===
+  if (nodoActual.tipo === 'usar_agente') {
+    console.log(`   🤖 Continuando agente multi-turno (conv: ${conversacion.id})`)
+
+    const resultadoAgente = await continuarAgente(nodoActual, conversacion, adapter, mensaje)
+
+    // Guardar mensaje saliente del agente
+    if (resultadoAgente.respuesta) {
+      await guardarMensajeFlujo({
+        conversacion_id: conversacion.id,
+        direccion: 'saliente',
+        contenido: resultadoAgente.respuesta,
+        tipo_nodo: 'usar_agente',
+        nodo_id: nodoActual.id
+      })
+    }
+
+    if (!resultadoAgente.finalizado) {
+      // Agente sigue conversando: quedarse en este nodo
+      variablesActualizadas.ultima_respuesta = mensaje
+      await actualizarConversacionFlujo(conversacion.id, {
+        variables: variablesActualizadas
+      })
+      return { handled: true }
+    }
+
+    // Agente termino: limpiar agente_activo_id y continuar al siguiente nodo
+    console.log(`   🤖 Agente finalizo conversacion en conv ${conversacion.id}`)
+    try {
+      await supabaseDirecto
+        .from('conversaciones_flujo')
+        .update({
+          agente_activo_id: null,
+          actualizado_en: new Date().toISOString()
+        })
+        .eq('id', conversacion.id)
+    } catch (e) {
+      console.warn('   ⚠️ Error limpiando agente_activo_id:', e.message)
+    }
+
+    // Caer al flujo normal: evaluar edges y continuar
+    variablesActualizadas.ultima_respuesta = mensaje
+    await actualizarConversacionFlujo(conversacion.id, {
+      variables: variablesActualizadas
+    })
+    conversacion.variables = variablesActualizadas
+
+    const siguienteNodoAgente = evaluarEdges(nodoActual, flujo, conversacion, mensaje)
+    if (!siguienteNodoAgente) {
+      await finalizarConversacion(conversacion.id, 'completada')
+      return { handled: true }
+    }
+
+    await ejecutarDesdeNodo(siguienteNodoAgente, flujo, conversacion, adapter, mensaje)
+    return { handled: true }
   }
 
   // Actualizar variables si cambiaron
