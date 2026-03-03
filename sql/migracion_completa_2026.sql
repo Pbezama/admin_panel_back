@@ -482,3 +482,56 @@ END $$;
 -- FROM pg_policies
 -- WHERE schemaname = 'public'
 -- ORDER BY tablename, policyname;
+
+
+-- =============================================
+-- TABLAS CUSTOM (2026-03)
+-- Tablas personalizadas por marca (meta-tabla)
+-- =============================================
+
+-- Esquemas de tablas personalizadas por marca
+CREATE TABLE IF NOT EXISTS tablas_custom (
+  id             SERIAL PRIMARY KEY,
+  id_marca       BIGINT NOT NULL,
+  nombre         VARCHAR(100) NOT NULL,
+  descripcion    TEXT,
+  columnas       JSONB NOT NULL DEFAULT '[]',
+  -- columnas: [{nombre, tipo, requerido, default_valor}]
+  -- tipo: 'texto' | 'numero' | 'fecha' | 'booleano' | 'email'
+  creado_en      TIMESTAMPTZ DEFAULT NOW(),
+  actualizado_en TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(id_marca, nombre)
+);
+
+-- Registros de tablas personalizadas (datos como JSONB)
+CREATE TABLE IF NOT EXISTS registros_custom (
+  id              SERIAL PRIMARY KEY,
+  id_marca        BIGINT NOT NULL,
+  tabla_id        INTEGER REFERENCES tablas_custom(id) ON DELETE CASCADE,
+  tabla_nombre    VARCHAR(100) NOT NULL,
+  datos           JSONB NOT NULL DEFAULT '{}',
+  conversacion_id INTEGER,
+  creado_en       TIMESTAMPTZ DEFAULT NOW(),
+  actualizado_en  TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_tablas_custom_marca    ON tablas_custom(id_marca);
+CREATE INDEX IF NOT EXISTS idx_registros_custom_tabla ON registros_custom(tabla_id, id_marca);
+
+-- RLS
+ALTER TABLE tablas_custom    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE registros_custom ENABLE ROW LEVEL SECURITY;
+
+-- La API usa service_role (bypasses RLS)
+-- El engine Python usa anon key → necesita políticas:
+CREATE POLICY IF NOT EXISTS anon_tablas_custom ON tablas_custom
+  FOR ALL TO anon USING (true) WITH CHECK (true);
+
+CREATE POLICY IF NOT EXISTS anon_registros_custom ON registros_custom
+  FOR ALL TO anon USING (true) WITH CHECK (true);
+
+-- Grants para anon (motor Python en PythonAnywhere)
+GRANT SELECT, INSERT, UPDATE, DELETE ON tablas_custom    TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON registros_custom TO anon;
+GRANT USAGE, SELECT ON SEQUENCE tablas_custom_id_seq    TO anon;
+GRANT USAGE, SELECT ON SEQUENCE registros_custom_id_seq TO anon;
