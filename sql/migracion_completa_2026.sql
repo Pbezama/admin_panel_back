@@ -524,11 +524,17 @@ ALTER TABLE registros_custom ENABLE ROW LEVEL SECURITY;
 
 -- La API usa service_role (bypasses RLS)
 -- El engine Python usa anon key → necesita políticas:
-CREATE POLICY IF NOT EXISTS anon_tablas_custom ON tablas_custom
-  FOR ALL TO anon USING (true) WITH CHECK (true);
-
-CREATE POLICY IF NOT EXISTS anon_registros_custom ON registros_custom
-  FOR ALL TO anon USING (true) WITH CHECK (true);
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'tablas_custom' AND policyname = 'anon_tablas_custom') THEN
+    CREATE POLICY anon_tablas_custom ON tablas_custom
+      FOR ALL TO anon USING (true) WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'registros_custom' AND policyname = 'anon_registros_custom') THEN
+    CREATE POLICY anon_registros_custom ON registros_custom
+      FOR ALL TO anon USING (true) WITH CHECK (true);
+  END IF;
+END $$;
 
 -- Grants para anon (motor Python en PythonAnywhere)
 GRANT SELECT, INSERT, UPDATE, DELETE ON tablas_custom    TO anon;
