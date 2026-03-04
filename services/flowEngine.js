@@ -167,9 +167,9 @@ export async function continuarFlujo(conversacion, params) {
     }
   }
 
-  // === NODO USAR_AGENTE: multi-turno con agente IA (como Python) ===
+  // === NODO USAR_AGENTE: multi-turno con agente IA ===
   if (nodoActual.tipo === 'usar_agente') {
-    console.log(`   🤖 Continuando agente multi-turno (conv: ${conversacion.id})`)
+    console.log(`   Continuando agente multi-turno (conv: ${conversacion.id})`)
 
     const resultadoAgente = await continuarAgente(nodoActual, conversacion, adapter, mensaje)
 
@@ -194,7 +194,7 @@ export async function continuarFlujo(conversacion, params) {
     }
 
     // Agente termino: limpiar agente_activo_id y continuar al siguiente nodo
-    console.log(`   🤖 Agente finalizo conversacion en conv ${conversacion.id}`)
+    console.log(`   Agente finalizo (salida: ${resultadoAgente.salidaAgente || 'default'}) en conv ${conversacion.id}`)
     try {
       await supabaseDirecto
         .from('conversaciones_flujo')
@@ -204,17 +204,21 @@ export async function continuarFlujo(conversacion, params) {
         })
         .eq('id', conversacion.id)
     } catch (e) {
-      console.warn('   ⚠️ Error limpiando agente_activo_id:', e.message)
+      console.warn('   Error limpiando agente_activo_id:', e.message)
     }
 
-    // Caer al flujo normal: evaluar edges y continuar
+    // Guardar resultado del agente en variable
+    const varResultado = nodoActual.datos?.variable_resultado || 'resultado_agente'
+    variablesActualizadas[varResultado] = resultadoAgente.respuesta || ''
     variablesActualizadas.ultima_respuesta = mensaje
+
     await actualizarConversacionFlujo(conversacion.id, {
       variables: variablesActualizadas
     })
     conversacion.variables = variablesActualizadas
 
-    const siguienteNodoAgente = evaluarEdges(nodoActual, flujo, conversacion, mensaje)
+    // Evaluar edges con salidaAgente
+    const siguienteNodoAgente = evaluarEdges(nodoActual, flujo, conversacion, mensaje, { salidaAgente: resultadoAgente.salidaAgente })
     if (!siguienteNodoAgente) {
       await finalizarConversacion(conversacion.id, 'completada')
       return { handled: true }
@@ -377,6 +381,26 @@ function evaluarEdges(nodoActual, flujo, conversacion, mensaje, resultadoEjecuci
     const defaultEdge = edges.find(e => e.condicion?.tipo === 'default' || !e.condicion)
     if (defaultEdge) return flujo.nodos.find(n => n.id === defaultEdge.destino)
 
+    return null
+  }
+
+  // Para nodos usar_agente, usar salidaAgente del resultado
+  if (nodoActual.tipo === 'usar_agente') {
+    const salidaAgente = resultadoEjecucion.salidaAgente
+
+    if (salidaAgente) {
+      for (const edge of edges) {
+        const cond = edge.condicion
+        if (cond && cond.tipo === 'salida_agente' && cond.valor === salidaAgente) {
+          return flujo.nodos.find(n => n.id === edge.destino)
+        }
+      }
+    }
+
+    // Fallback: default edge o unico edge
+    const defaultEdge = edges.find(e => !e.condicion || e.condicion?.tipo === 'default')
+    if (defaultEdge) return flujo.nodos.find(n => n.id === defaultEdge.destino)
+    if (edges.length === 1) return flujo.nodos.find(n => n.id === edges[0].destino)
     return null
   }
 

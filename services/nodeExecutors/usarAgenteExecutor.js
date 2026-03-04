@@ -5,7 +5,8 @@
  * Primer turno: ejecutarUsarAgente (llamado por ejecutarDesdeNodo)
  * Turnos siguientes: continuarAgente (llamado por continuarFlujo)
  *
- * Basado en flow_engine.py ejecutar_usar_agente + continuar_agente
+ * El agente conversa multi-turno y al finalizar elige una salida
+ * configurable via [SALIDA:id][FINALIZAR].
  */
 
 import { interpolarVariables } from '../flowEngine'
@@ -25,6 +26,35 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 )
 
+const REGEX_SALIDA = /\[SALIDA:(\w+)\]/
+const REGEX_FINALIZAR = /\[FINALIZAR\]/
+const REGEX_BRACKETS = /\[[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\s_:.\-0-9]*\]/g
+
+/**
+ * Detectar [SALIDA:id] en respuesta del agente
+ */
+function detectarSalida(respuesta) {
+  const match = REGEX_SALIDA.exec(respuesta)
+  if (match) {
+    const salidaId = match[1]
+    const limpia = respuesta.replace(REGEX_SALIDA, '').trim()
+    return { salidaId, respuesta: limpia }
+  }
+  return { salidaId: null, respuesta }
+}
+
+/**
+ * Limpiar cualquier señal interna [TEXTO_MAYUSCULA] de la respuesta
+ * antes de enviarla al usuario
+ */
+function limpiarSenales(respuesta) {
+  return respuesta
+    .replace(REGEX_FINALIZAR, '')
+    .replace(REGEX_SALIDA, '')
+    .replace(REGEX_BRACKETS, '')
+    .trim()
+}
+
 /**
  * Cargar agente directamente (como Python _cargar_agente)
  */
@@ -40,15 +70,15 @@ async function cargarAgente(agenteId) {
     if (error) throw error
     return data || null
   } catch (e) {
-    console.error('   ❌ Error cargando agente:', e.message)
+    console.error('   Error cargando agente:', e.message)
     return null
   }
 }
 
 /**
- * Construir system prompt del agente (como Python _build_agent_prompt)
+ * Construir system prompt del agente
  */
-function buildAgentPrompt(agente, conversacion, conocimientoMarca, conocimientoAgente) {
+function buildAgentPrompt(agente, conversacion, conocimientoMarca, conocimientoAgente, salidas) {
   const variables = conversacion.variables || {}
   const nombreMarca = variables.nombre_marca || ''
 
@@ -126,9 +156,24 @@ function buildAgentPrompt(agente, conversacion, conocimientoMarca, conocimientoA
   // Condiciones de cierre
   if (agente.condiciones_cierre) {
     prompt += `\n\nCONDICIONES DE CIERRE:\n${agente.condiciones_cierre}`
-    prompt += `\nCuando se cumplan estas condiciones, despidete amablemente y agrega [FINALIZAR] al final de tu mensaje.`
   }
 
+  // Instrucciones de cierre y salidas
+  prompt += `\n\n--- INSTRUCCIONES DE CIERRE ---`
+  prompt += `\nEsta es una conversacion multi-turno. Debes seguir conversando hasta cumplir tu objetivo.`
+
+  if (salidas && salidas.length > 0) {
+    prompt += `\n\nSALIDAS DISPONIBLES - Cuando termines la conversacion, elige UNA de estas salidas que mejor represente el resultado:`
+    for (const s of salidas) {
+      prompt += `\n- "${s.id}": ${s.descripcion || s.id}`
+    }
+    prompt += `\n\nCuando la conversacion deba terminar, incluye exactamente [SALIDA:id_de_salida][FINALIZAR] al FINAL de tu mensaje.`
+    prompt += `\nEjemplo: ...tu respuesta aqui... [SALIDA:${salidas[0].id}][FINALIZAR]`
+  } else {
+    prompt += `\nCuando hayas CUMPLIDO tu objetivo o la conversacion deba terminar, incluye exactamente [FINALIZAR] al FINAL de tu mensaje.`
+  }
+
+  prompt += `\nNO uses [FINALIZAR] si aun necesitas mas informacion o la conversacion debe continuar.`
   prompt += `\n\nIMPORTANTE: Responde basandote en el conocimiento proporcionado. No inventes informacion. Si no sabes algo, indicalo. Responde de forma concisa y natural.`
 
   return prompt
@@ -146,7 +191,7 @@ async function cargarConocimiento(conversacion, agenteId) {
       const r = await obtenerConocimientoAprobado(idMarca)
       if (r.success) conocimientoMarca = r.data || []
     } catch (e) {
-      console.warn('   ⚠️ Error cargando conocimiento marca:', e.message)
+      console.warn('   Error cargando conocimiento marca:', e.message)
     }
   }
 
@@ -155,7 +200,7 @@ async function cargarConocimiento(conversacion, agenteId) {
     const r = await getConocimientoAgente(agenteId)
     if (r.success) conocimientoAgente = r.data || []
   } catch (e) {
-    console.warn('   ⚠️ Error cargando conocimiento agente:', e.message)
+    console.warn('   Error cargando conocimiento agente:', e.message)
   }
 
   return { conocimientoMarca, conocimientoAgente }
@@ -174,9 +219,11 @@ export async function ejecutarUsarAgente(nodo, contexto) {
   const datos = nodo.datos || {}
   const agenteId = datos.agente_id
   const mensajeTransicion = datos.mensaje_transicion || ''
+  const salidas = datos.salidas || []
+  const variableResultado = datos.variable_resultado || 'resultado_agente'
 
   if (!agenteId) {
-    console.warn('   ⚠️ usar_agente: sin agente_id configurado')
+    console.warn('   usar_agente: sin agente_id configurado')
     return { continuar: true }
   }
 
@@ -189,47 +236,70 @@ export async function ejecutarUsarAgente(nodo, contexto) {
   try {
     const agente = await cargarAgente(agenteId)
     if (!agente) {
-      console.error(`   ❌ usar_agente: agente no encontrado (id: ${agenteId})`)
+      console.error(`   usar_agente: agente no encontrado (id: ${agenteId})`)
       return { continuar: true }
     }
 
     if (agente.estado !== 'activo') {
-      console.warn(`   ⚠️ usar_agente: agente "${agente.nombre}" no activo (estado: ${agente.estado})`)
+      console.warn(`   usar_agente: agente "${agente.nombre}" no activo (estado: ${agente.estado})`)
       return { continuar: true }
     }
 
-    console.log(`   🤖 Activando agente: "${agente.nombre}" (${agente.modelo || 'gpt-4o-mini'})`)
+    console.log(`   Activando agente: "${agente.nombre}" (${agente.modelo || 'gpt-4o-mini'})`)
 
     // Cargar conocimiento
     const { conocimientoMarca, conocimientoAgente } = await cargarConocimiento(conversacion, agenteId)
-    console.log(`   📚 Conocimiento: ${conocimientoMarca.length} marca, ${conocimientoAgente.length} agente`)
+    console.log(`   Conocimiento: ${conocimientoMarca.length} marca, ${conocimientoAgente.length} agente`)
 
     // Construir prompt y generar primera respuesta
-    const systemPrompt = buildAgentPrompt(agente, conversacion, conocimientoMarca, conocimientoAgente)
+    const systemPrompt = buildAgentPrompt(agente, conversacion, conocimientoMarca, conocimientoAgente, salidas)
+
+    // Cargar historial previo para dar contexto al agente (ej: viene de otro agente)
+    const messages = [{ role: 'system', content: systemPrompt }]
+    try {
+      const resp = await supabase
+        .from('mensajes_flujo')
+        .select('direccion, contenido')
+        .eq('conversacion_id', conversacion.id)
+        .order('creado_en', { ascending: true })
+        .limit(20)
+
+      const historial = resp.data || []
+      if (historial.length > 0) {
+        // Incluir historial como contexto para que el agente sepa que paso antes
+        const resumen = historial.map(m => {
+          const rol = m.direccion === 'saliente' ? 'Asistente' : 'Cliente'
+          return `${rol}: ${m.contenido}`
+        }).join('\n')
+        messages.push({ role: 'user', content: `[CONTEXTO DE CONVERSACION PREVIA]\n${resumen}\n\n[NUEVO MENSAJE]\nEl cliente ha sido transferido a ti. Presentate brevemente y continua ayudandolo. Su ultimo mensaje fue: ${mensaje || 'Hola'}` })
+      } else {
+        messages.push({ role: 'user', content: mensaje || 'Hola' })
+      }
+    } catch (e) {
+      messages.push({ role: 'user', content: mensaje || 'Hola' })
+    }
 
     const response = await openai.chat.completions.create({
       model: agente.modelo || 'gpt-4o-mini',
       temperature: agente.temperatura || 0.7,
       max_tokens: 800,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: mensaje || 'Hola' }
-      ]
+      messages
     })
 
-    let respuestaTexto = response.choices[0]?.message?.content || 'Hola, ¿en qué puedo ayudarte?'
+    let respuestaTexto = response.choices[0]?.message?.content || 'Hola, en que puedo ayudarte?'
 
-    // Detectar si el agente quiere cerrar en el primer turno
-    const finalizado = respuestaTexto.includes('[FINALIZAR]')
-    respuestaTexto = respuestaTexto.replace('[FINALIZAR]', '').trim()
+    // Detectar salida y finalizacion
+    const { salidaId, respuesta: sinSalida } = detectarSalida(respuestaTexto)
+    const finalizado = REGEX_FINALIZAR.test(sinSalida)
+    const respuestaLimpia = limpiarSenales(sinSalida)
 
-    await adapter.enviarTexto(respuestaTexto)
+    await adapter.enviarTexto(respuestaLimpia)
 
     // Guardar respuesta del agente
     await guardarMensajeFlujo({
       conversacion_id: conversacion.id,
       direccion: 'saliente',
-      contenido: respuestaTexto,
+      contenido: respuestaLimpia,
       tipo_nodo: 'usar_agente',
       nodo_id: nodo.id
     })
@@ -244,36 +314,35 @@ export async function ejecutarUsarAgente(nodo, contexto) {
         })
         .eq('id', conversacion.id)
     } catch (e) {
-      console.warn(`   ⚠️ usar_agente: no se pudo marcar agente_activo_id: ${e.message}`)
+      console.warn(`   usar_agente: no se pudo marcar agente_activo_id: ${e.message}`)
     }
 
-    console.log(`   🤖 Agente "${agente.nombre}" respondio (${respuestaTexto.length} chars)`)
+    console.log(`   Agente "${agente.nombre}" respondio (${respuestaLimpia.length} chars, finalizado=${finalizado}, salida=${salidaId || 'ninguna'})`)
+
+    const varsActualizadas = {
+      ...conversacion.variables,
+      agente_activo_id: String(agenteId),
+      agente_activo_nombre: agente.nombre || ''
+    }
 
     if (finalizado) {
       // Agente resolvio todo en un turno
+      varsActualizadas[variableResultado] = respuestaLimpia
       return {
         continuar: true,
-        variablesActualizadas: {
-          ...conversacion.variables,
-          agente_activo_id: String(agenteId),
-          agente_activo_nombre: agente.nombre || ''
-        }
+        salidaAgente: salidaId || null,
+        variablesActualizadas: varsActualizadas
       }
     }
 
     return {
       continuar: false,
       esperarInput: true,
-      variablesActualizadas: {
-        ...conversacion.variables,
-        agente_activo_id: String(agenteId),
-        agente_activo_nombre: agente.nombre || ''
-      }
+      variablesActualizadas: varsActualizadas
     }
 
   } catch (e) {
-    console.error('   ❌ Error en usar_agente:', e.message)
-    // NO enviar error al cliente (como Python)
+    console.error('   Error en usar_agente:', e.message)
     return { continuar: true }
   }
 }
@@ -284,35 +353,35 @@ export async function ejecutarUsarAgente(nodo, contexto) {
 
 /**
  * Continua conversacion multi-turno con agente IA.
- * Carga historial completo, genera respuesta, detecta finalizacion.
- * (Equivalente a Python continuar_agente)
+ * Carga historial completo, genera respuesta, detecta finalizacion y salida.
  *
  * @param {object} nodoActual - Nodo usar_agente actual
  * @param {object} conversacion - Conversacion con variables
  * @param {object} adapter - Adapter del canal
  * @param {string} mensaje - Mensaje del usuario
- * @returns {{ finalizado: boolean, respuesta: string }}
+ * @returns {{ finalizado: boolean, respuesta: string, salidaAgente: string|null }}
  */
 export async function continuarAgente(nodoActual, conversacion, adapter, mensaje) {
   const datos = nodoActual.datos || {}
   const agenteId = datos.agente_id
+  const salidas = datos.salidas || []
 
   if (!agenteId) {
-    return { finalizado: true, respuesta: '' }
+    return { finalizado: true, respuesta: '', salidaAgente: null }
   }
 
   try {
     const agente = await cargarAgente(agenteId)
     if (!agente || agente.estado !== 'activo') {
-      console.warn(`   ⚠️ continuar_agente: agente no disponible (id: ${agenteId})`)
-      return { finalizado: true, respuesta: '' }
+      console.warn(`   continuar_agente: agente no disponible (id: ${agenteId})`)
+      return { finalizado: true, respuesta: '', salidaAgente: null }
     }
 
     // Cargar conocimiento
     const { conocimientoMarca, conocimientoAgente } = await cargarConocimiento(conversacion, agenteId)
 
-    // Construir prompt
-    const systemPrompt = buildAgentPrompt(agente, conversacion, conocimientoMarca, conocimientoAgente)
+    // Construir prompt con salidas
+    const systemPrompt = buildAgentPrompt(agente, conversacion, conocimientoMarca, conocimientoAgente, salidas)
 
     // Cargar historial de mensajes
     let historial = []
@@ -326,7 +395,7 @@ export async function continuarAgente(nodoActual, conversacion, adapter, mensaje
 
       historial = resp.data || []
     } catch (e) {
-      console.warn('   ⚠️ Error cargando historial:', e.message)
+      console.warn('   Error cargando historial:', e.message)
     }
 
     // Construir array de mensajes para OpenAI
@@ -359,8 +428,8 @@ export async function continuarAgente(nodoActual, conversacion, adapter, mensaje
     const turnosAgente = messages.filter(m => m.role === 'assistant').length
     if (turnosAgente >= maxTurnos) {
       await adapter.enviarTexto('Hemos alcanzado el limite de esta conversacion. Gracias por tu tiempo!')
-      console.log(`   🤖 usar_agente: max_turnos (${maxTurnos}) alcanzado`)
-      return { finalizado: true, respuesta: 'Limite de turnos alcanzado' }
+      console.log(`   usar_agente: max_turnos (${maxTurnos}) alcanzado`)
+      return { finalizado: true, respuesta: 'Limite de turnos alcanzado', salidaAgente: salidas[0]?.id || null }
     }
 
     // Generar respuesta
@@ -373,20 +442,21 @@ export async function continuarAgente(nodoActual, conversacion, adapter, mensaje
 
     let respuesta = response.choices[0]?.message?.content || ''
 
-    // Detectar finalizacion
-    const finalizado = respuesta.includes('[FINALIZAR]')
-    const respuestaLimpia = respuesta.replace('[FINALIZAR]', '').trim()
+    // Detectar salida y finalizacion
+    const { salidaId, respuesta: sinSalida } = detectarSalida(respuesta)
+    const finalizado = REGEX_FINALIZAR.test(sinSalida)
+    const respuestaLimpia = limpiarSenales(sinSalida)
 
     if (respuestaLimpia) {
       await adapter.enviarTexto(respuestaLimpia)
     }
 
-    console.log(`   🤖 Agente turno ${turnosAgente + 1}: finalizado=${finalizado}, largo=${respuestaLimpia.length}`)
+    console.log(`   Agente turno ${turnosAgente + 1}: finalizado=${finalizado}, salida=${salidaId || 'ninguna'}, largo=${respuestaLimpia.length}`)
 
-    return { finalizado, respuesta: respuestaLimpia }
+    return { finalizado, respuesta: respuestaLimpia, salidaAgente: salidaId || null }
 
   } catch (e) {
-    console.error('   ❌ Error continuando agente:', e.message)
-    return { finalizado: false, respuesta: '' }
+    console.error('   Error continuando agente:', e.message)
+    return { finalizado: false, respuesta: '', salidaAgente: null }
   }
 }
