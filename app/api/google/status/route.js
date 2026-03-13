@@ -1,11 +1,11 @@
 /**
  * API: /api/google/status
- * GET - Estado de conexion Google Calendar de la marca
+ * GET - Estado de todas las conexiones Google de la marca (unificado)
  */
 
 import { NextResponse } from 'next/server'
 import { verificarAutenticacion } from '@/lib/auth'
-import { obtenerTokenGoogleCalendar } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase'
 
 export async function GET(request) {
   try {
@@ -15,18 +15,51 @@ export async function GET(request) {
     }
 
     const idMarca = request.headers.get('x-marca-id') || auth.usuario.id_marca
-    const resultado = await obtenerTokenGoogleCalendar(idMarca)
 
-    if (!resultado.success) {
-      return NextResponse.json({ error: resultado.error }, { status: 500 })
+    // Conexiones nuevas (google_conexiones)
+    const { data: conexiones } = await supabase
+      .from('google_conexiones')
+      .select('id, nombre_cuenta, email_google, estado, scopes, creado_en')
+      .eq('id_marca', idMarca)
+      .order('creado_en', { ascending: false })
+
+    // Calendar viejo (compatibilidad)
+    let calendarLegacy = null
+    try {
+      const { data } = await supabase
+        .from('google_calendar_tokens')
+        .select('id, email_calendar, calendar_id')
+        .eq('id_marca', idMarca)
+        .limit(1)
+      calendarLegacy = data?.[0] || null
+    } catch (e) {
+      // Tabla puede no existir
     }
 
-    const token = resultado.data
+    // Conteos
+    const { count: totalArchivos } = await supabase
+      .from('google_archivos')
+      .select('id', { count: 'exact', head: true })
+      .eq('id_marca', idMarca)
+
+    const { count: totalFuentes } = await supabase
+      .from('google_fuentes_datos')
+      .select('id', { count: 'exact', head: true })
+      .eq('id_marca', idMarca)
+
     return NextResponse.json({
       success: true,
-      connected: !!token,
-      email: token?.email_calendar || null,
-      calendar_id: token?.calendar_id || null
+      conexiones: conexiones || [],
+      total_conexiones: (conexiones || []).length,
+      conexiones_activas: (conexiones || []).filter(c => c.estado === 'activa').length,
+      total_archivos: totalArchivos || 0,
+      total_fuentes: totalFuentes || 0,
+      // Compatibilidad Calendar
+      calendar_legacy: calendarLegacy ? {
+        connected: true,
+        email: calendarLegacy.email_calendar,
+        calendar_id: calendarLegacy.calendar_id
+      } : { connected: false }
     })
   } catch (error) {
     console.error('Error GET /api/google/status:', error)
