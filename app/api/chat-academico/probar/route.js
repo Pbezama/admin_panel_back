@@ -302,15 +302,55 @@ export async function POST(request) {
       finalContent = '(Se alcanzó el límite de iteraciones de herramientas)'
     }
 
+    // =========================================================
+    // 5. Construir historial completo con tools para memoria
+    //    (GPT necesita ver tool_calls + tool results para contexto)
+    // =========================================================
+    // Extraer solo los mensajes nuevos (sin system prompts)
+    const mensajesNuevos = currentMessages.slice(messages.length - 1) // desde el user message actual
+    // Si GPT respondio sin tools, agregar su respuesta al historial
+    if (finalContent) {
+      mensajesNuevos.push({ role: 'assistant', content: finalContent })
+    }
+
+    // Historial completo: previo + nuevos (con tool_calls y tool results)
+    // Limitar a ultimas 20 interacciones para no explotar tokens
+    const historialCompleto = [...historial, ...mensajesNuevos]
+    const MAX_HISTORIAL = 60 // ~20 intercambios (user+assistant+tools)
+    const historialRecortado = historialCompleto.length > MAX_HISTORIAL
+      ? historialCompleto.slice(-MAX_HISTORIAL)
+      : historialCompleto
+
+    // Serializar tool_calls en mensajes assistant para que JSON sea limpio
+    const historialSerializado = historialRecortado.map(msg => {
+      if (msg.role === 'assistant' && msg.tool_calls) {
+        return {
+          role: 'assistant',
+          content: msg.content || null,
+          tool_calls: msg.tool_calls.map(tc => ({
+            id: tc.id,
+            type: tc.type,
+            function: { name: tc.function.name, arguments: tc.function.arguments }
+          }))
+        }
+      }
+      return msg
+    })
+
+    // Resumen para MB: lo que MessageBird recibiria como respuesta
+    const resumenMB = {
+      texto_enviado: finalContent,
+      tools_ejecutadas: toolCallsLog.length,
+      iteraciones_gpt: iteracion,
+      herramientas_usadas: toolCallsLog.map(t => t.nombre_display || t.nombre)
+    }
+
     return NextResponse.json({
       success: true,
       respuesta: finalContent,
       tool_calls: toolCallsLog,
-      historial_actualizado: [
-        ...historial,
-        { role: 'user', content: mensaje },
-        { role: 'assistant', content: finalContent }
-      ]
+      resumen_mb: resumenMB,
+      historial_actualizado: historialSerializado
     })
 
   } catch (error) {
