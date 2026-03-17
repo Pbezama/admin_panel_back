@@ -15,7 +15,8 @@ import { NextResponse } from 'next/server'
 import { verificarAutenticacion } from '@/lib/auth'
 import {
   obtenerChatAcademicoConfig,
-  obtenerChatAcademicoHerramientas
+  obtenerChatAcademicoHerramientas,
+  supabase
 } from '@/lib/supabase'
 import { openai } from '@/lib/openai'
 import {
@@ -95,67 +96,6 @@ async function ejecutarTool(herramienta, args) {
   return `Tipo de herramienta desconocido: ${tipo}`
 }
 
-// --- Actividades semanales (replica del system_message_bot_Actividades de Python) ---
-const ACTIVIDADES_SEMANALES = `Información de la semana:
-####
-#ACTIVIDADES
-        Todas las actividades son informadas y detalladas mediante correo electronico
-
-        ##Programa anual-Esencial
-        %%%%
-        Semana del 28 de abril
-
-        -Seguimos Clases anuales 2025 - sesión n3 conexión, asistencia y agendamiento de clases. (L- M1- H- Cs) No olvides agendar tus clases!
-
-        EXTRAS
-        -ENTREGABLE: Planificación 2026 Organiza tu preparación desde ya!- Planifica tu camino hacia la admisión 2026.
-
-        CHARLAS
-        -Listo para lograr tus objetivos? Inscribete en la charla "El poder de las metas" - Define y conquista tus objetivos.
-
-        %%%%
-        ##Programa anual- Orientación-Pro
-        %%%%
-        Semana del 28 de abril
-
-         -Seguimos Clases anuales 2025 - sesión n3 conexión, asistencia y agendamiento de clases. (L- M1- H- Cs) No olvides agendar tus clases!
-
-        EXTRAS
-        -ENTREGABLE: Planificación 2026 Organiza tu preparación desde ya!- Planifica tu camino hacia la admisión 2026.
-        -ULTIMO LLAMADO! Agenda tu sesion con tu coach estrategico- Etapa MTD.
-
-        CHARLAS
-        -Listo para lograr tus objetivos? Inscribete en la charla "El poder de las metas" - Define y conquista tus objetivos.
-
-        %%%%
-
-        ##Programa Duo o Anticipa 2025
-        %%%%
-        Semana del 28 de abril
-
-        -Seguimos clases anual 2025- Sesión n2. No olvides agendar tus clases! Para clases anulaes LEN/MAT
-
-        EXTRAS
-        -ULTIMO LLAMADO! Agenda tu sesion con tu coach estrategico- Etapa MTD.
-
-        CHARLAS
-        -Listo para lograr tus objetivos? Inscribete en la charla "El poder de las metas" - Define y conquista tus objetivos.
-
-        %%%%
-
-        ##Programa UP media 2025
-        %%%%
-        Semana del 28 de abril
-
-        -Información clave: Evaluacion N1 LEN/MAT - Modulo Up media ¡Vamos con todo!
-
-        EXTRAS
-        -ULTIMO LLAMADO! Agenda tu sesion de orientación vocacional - Etapa plan explora.
-
-        %%%%
-
-####`
-
 export async function POST(request) {
   try {
     const auth = await verificarAutenticacion(request)
@@ -165,11 +105,14 @@ export async function POST(request) {
 
     const idMarca = request.headers.get('x-marca-id') || auth.usuario.id_marca
     const body = await request.json()
-    const { mensaje, historial = [] } = body
+    const { mensaje, historial = [], conversation_id: convIdBody } = body
 
     if (!mensaje) {
       return NextResponse.json({ error: 'mensaje es requerido' }, { status: 400 })
     }
+
+    // Generar o reutilizar conversation_id para persistencia en DB
+    const conversationId = convIdBody || `prueba_${idMarca}_${Date.now()}`
 
     // =========================================================
     // 1. Cargar config y herramientas (igual que Python linea 83-84)
@@ -192,13 +135,14 @@ export async function POST(request) {
     const systemPrompt = construirSystemPrompt(config)
     const tools = herramientas.length > 0 ? construirToolsOpenAI(herramientas) : undefined
 
-    // Construir mensajes con 2 system messages (igual que Python linea 515-516)
+    // Construir mensajes con system prompt + actividades (si hay)
     const messages = [
       { role: 'system', content: systemPrompt },
-      { role: 'system', content: ACTIVIDADES_SEMANALES },
-      ...historial,
-      { role: 'user', content: mensaje }
     ]
+    if (config.prompt_actividades && config.prompt_actividades.trim()) {
+      messages.push({ role: 'system', content: config.prompt_actividades })
+    }
+    messages.push(...historial, { role: 'user', content: mensaje })
 
     // =========================================================
     // 3. Llamada 1 a GPT-4o (igual que Python linea 550-566)
@@ -314,9 +258,9 @@ export async function POST(request) {
     }
 
     // Historial completo: previo + nuevos (con tool_calls y tool results)
-    // Limitar a ultimas 20 interacciones para no explotar tokens
+    // Limitar segun config (configurable desde panel CreceTec)
     const historialCompleto = [...historial, ...mensajesNuevos]
-    const MAX_HISTORIAL = 60 // ~20 intercambios (user+assistant+tools)
+    const MAX_HISTORIAL = parseInt(config.max_mensajes_conversacion) || 60
     const historialRecortado = historialCompleto.length > MAX_HISTORIAL
       ? historialCompleto.slice(-MAX_HISTORIAL)
       : historialCompleto
@@ -345,12 +289,30 @@ export async function POST(request) {
       herramientas_usadas: toolCallsLog.map(t => t.nombre_display || t.nombre)
     }
 
+    // Guardar conversacion en Supabase (igual que produccion)
+    try {
+      await supabase.from('chat_academico_conversaciones').upsert({
+        conversation_id: conversationId,
+        id_marca: idMarca,
+        phone: 'prueba-panel',
+        channel_id: 'panel-crecetec',
+        messages: historialSerializado,
+        intentos_reactivacion: 0,
+        estado: 'activa',
+        actualizado_en: new Date().toISOString()
+      }, { onConflict: 'conversation_id' })
+      console.log(`[ChatAcademico-Probar] Conversacion guardada en DB: ${conversationId}`)
+    } catch (dbErr) {
+      console.error('[ChatAcademico-Probar] Error guardando en DB:', dbErr.message)
+    }
+
     return NextResponse.json({
       success: true,
       respuesta: finalContent,
       tool_calls: toolCallsLog,
       resumen_mb: resumenMB,
-      historial_actualizado: historialSerializado
+      historial_actualizado: historialSerializado,
+      conversation_id: conversationId
     })
 
   } catch (error) {

@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS chat_academico_config (
   prompt_estilo               TEXT DEFAULT '',
   prompt_reglas               TEXT DEFAULT '',
   prompt_consideraciones      TEXT DEFAULT '',
+  prompt_actividades          TEXT DEFAULT '',
 
   -- Parametros de conversacion
   tiempo_espera_respuesta     INTEGER DEFAULT 120,
@@ -34,6 +35,9 @@ CREATE TABLE IF NOT EXISTS chat_academico_config (
   temperatura                 REAL DEFAULT 0.7,
   max_tokens                  INTEGER DEFAULT 1500,
   parallel_tool_calls         BOOLEAN DEFAULT true,
+  max_mensajes_conversacion   INTEGER DEFAULT 60,
+  max_tokens_contexto         INTEGER DEFAULT 100000,
+  max_iteraciones_tools       INTEGER DEFAULT 3,
 
   -- Multi-canal
   canales_activos             JSONB DEFAULT '["whatsapp"]'::jsonb,
@@ -425,3 +429,55 @@ VALUES (
   'crear',
   '{"nota": "Configuracion inicial migrada desde chatacademico.py con 15 herramientas semilla"}'::jsonb
 );
+
+-- =====================================================
+-- 5. MIGRACIONES INCREMENTALES
+-- (ejecutar si las tablas ya existen sin estas columnas/tablas)
+-- =====================================================
+
+-- 5.1 max_mensajes_conversacion
+ALTER TABLE chat_academico_config
+  ADD COLUMN IF NOT EXISTS max_mensajes_conversacion INTEGER DEFAULT 60;
+
+-- 5.2 max_tokens_contexto (Fase 1: conteo de tokens)
+ALTER TABLE chat_academico_config
+  ADD COLUMN IF NOT EXISTS max_tokens_contexto INTEGER DEFAULT 100000;
+
+-- 5.3b max_iteraciones_tools (Fase 2: multi-ronda de tools)
+ALTER TABLE chat_academico_config
+  ADD COLUMN IF NOT EXISTS max_iteraciones_tools INTEGER DEFAULT 3;
+
+-- 5.3 Persistencia de conversaciones (Fase 1: estado en DB)
+CREATE TABLE IF NOT EXISTS chat_academico_conversaciones (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id_marca          BIGINT NOT NULL,
+  conversation_id   TEXT NOT NULL,
+  phone             TEXT,
+  channel_id        TEXT,
+  messages          JSONB NOT NULL DEFAULT '[]'::jsonb,
+  intentos_reactivacion INTEGER DEFAULT 0,
+  estado            TEXT DEFAULT 'activa' CHECK (estado IN ('activa','finalizada','derivada','timeout')),
+  creado_en         TIMESTAMPTZ DEFAULT NOW(),
+  actualizado_en    TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(conversation_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ca_conv_conversation
+  ON chat_academico_conversaciones(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_ca_conv_marca
+  ON chat_academico_conversaciones(id_marca);
+CREATE INDEX IF NOT EXISTS idx_ca_conv_estado
+  ON chat_academico_conversaciones(estado);
+
+-- 5.4 prompt_actividades (Fase 3: actividades editables desde panel)
+ALTER TABLE chat_academico_config
+  ADD COLUMN IF NOT EXISTS prompt_actividades TEXT DEFAULT '';
+
+-- 5.5 Deduplicacion de webhooks (Fase 3)
+CREATE TABLE IF NOT EXISTS chat_academico_mensajes_procesados (
+  message_id    TEXT PRIMARY KEY,
+  procesado_en  TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ca_dedup_fecha
+  ON chat_academico_mensajes_procesados(procesado_en);

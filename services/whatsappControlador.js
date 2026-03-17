@@ -9,7 +9,8 @@ import {
   agregarDato,
   modificarDato,
   desactivarDato,
-  consultarComentarios
+  consultarComentarios,
+  supabase
 } from '@/lib/supabase'
 
 /**
@@ -85,6 +86,11 @@ async function mapearRespuestaParaWhatsApp(respuesta, contexto) {
       // Ejecutar la accion
       const resultadoAccion = await ejecutarAccion(respuesta.ejecutar, contexto)
       return resultadoAccion
+
+    case 'accion_lote_confirmada':
+      // Ejecutar múltiples acciones en paralelo
+      const resultadoLote = await ejecutarAccionesLote(respuesta.ejecutar.acciones, contexto)
+      return resultadoLote
 
     case 'consultar_comentarios':
       // Ejecutar consulta de comentarios
@@ -264,6 +270,115 @@ async function ejecutarAccion(ejecutar, contexto) {
       tipo: 'error',
       contenido: `Error ejecutando accion: ${error.message}`
     }
+  }
+}
+
+/**
+ * Ejecutar múltiples acciones en paralelo
+ */
+async function ejecutarAccionesLote(acciones, contexto) {
+  if (!acciones || acciones.length === 0) {
+    return { tipo: 'error', contenido: 'No hay acciones para ejecutar' }
+  }
+
+  console.log(`🔄 Ejecutando lote: ${acciones.length} acciones en paralelo`)
+
+  const resultados = await Promise.all(
+    acciones.map(async ({ accion, parametros }, index) => {
+      try {
+        switch (accion) {
+          case 'agregar': {
+            const nuevoDato = {
+              'ID marca': contexto.idMarca,
+              'Nombre marca': contexto.nombreMarca,
+              Categoria: parametros.categoria,
+              Clave: parametros.clave,
+              Valor: parametros.valor,
+              prioridad: parametros.prioridad || 3,
+              fecha_inicio: parametros.fecha_inicio || null,
+              fecha_caducidad: parametros.fecha_caducidad || null
+            }
+            const res = await agregarDato(nuevoDato)
+            return { index: index + 1, ok: res.success, accion, clave: parametros.clave, error: res.error }
+          }
+
+          case 'modificar': {
+            if (!parametros.id_fila) return { index: index + 1, ok: false, accion, error: 'Sin ID' }
+            const updates = {}
+            if (parametros.updates) {
+              const campoMap = { categoria: 'Categoria', clave: 'Clave', valor: 'Valor', prioridad: 'prioridad', fecha_inicio: 'fecha_inicio', fecha_caducidad: 'fecha_caducidad' }
+              Object.entries(parametros.updates).forEach(([key, val]) => {
+                if (val !== null) updates[campoMap[key] || key] = val
+              })
+            }
+            const res = await modificarDato(parametros.id_fila, updates)
+            return { index: index + 1, ok: res.success, accion, id: parametros.id_fila, error: res.error }
+          }
+
+          case 'desactivar': {
+            if (!parametros.id_fila) return { index: index + 1, ok: false, accion, error: 'Sin ID' }
+            const res = await desactivarDato(parametros.id_fila)
+            return { index: index + 1, ok: res.success, accion, id: parametros.id_fila, error: res.error }
+          }
+
+          case 'duplicar': {
+            // Leer registro original y crear copia con cambios
+            if (!parametros.id_fila) return { index: index + 1, ok: false, accion, error: 'Sin ID para duplicar' }
+            try {
+              const { data: original } = await supabase
+                .from('base_cuentas')
+                .select('*')
+                .eq('id', parametros.id_fila)
+                .single()
+
+              if (!original) return { index: index + 1, ok: false, accion, error: `Registro ${parametros.id_fila} no encontrado` }
+
+              const nuevoDato = {
+                'ID marca': contexto.idMarca,
+                'Nombre marca': contexto.nombreMarca,
+                Categoria: parametros.categoria || original.Categoria,
+                Clave: parametros.clave || original.Clave,
+                Valor: parametros.valor || original.Valor,
+                prioridad: parametros.prioridad || original.prioridad,
+                fecha_inicio: parametros.fecha_inicio || original.fecha_inicio,
+                fecha_caducidad: parametros.fecha_caducidad || original.fecha_caducidad
+              }
+              // Aplicar updates si existen
+              if (parametros.updates) {
+                const campoMap = { categoria: 'Categoria', clave: 'Clave', valor: 'Valor', prioridad: 'prioridad', fecha_inicio: 'fecha_inicio', fecha_caducidad: 'fecha_caducidad' }
+                Object.entries(parametros.updates).forEach(([key, val]) => {
+                  if (val !== null) nuevoDato[campoMap[key] || key] = val
+                })
+              }
+              const res = await agregarDato(nuevoDato)
+              return { index: index + 1, ok: res.success, accion, clave: nuevoDato.Clave, error: res.error }
+            } catch (e) {
+              return { index: index + 1, ok: false, accion, error: e.message }
+            }
+          }
+
+          default:
+            return { index: index + 1, ok: false, accion, error: `Accion desconocida: ${accion}` }
+        }
+      } catch (error) {
+        return { index: index + 1, ok: false, accion, error: error.message }
+      }
+    })
+  )
+
+  const exitosos = resultados.filter(r => r.ok)
+  const fallidos = resultados.filter(r => !r.ok)
+
+  let resumen = `${exitosos.length} de ${acciones.length} acciones completadas correctamente.`
+  if (fallidos.length > 0) {
+    resumen += `\n\nErrores:\n` + fallidos.map(f => `- #${f.index}: ${f.error}`).join('\n')
+  }
+
+  console.log(`✅ Lote completado: ${exitosos.length} OK, ${fallidos.length} errores`)
+
+  return {
+    tipo: fallidos.length === 0 ? 'accion_completada' : 'texto',
+    contenido: resumen
   }
 }
 

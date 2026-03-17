@@ -251,7 +251,136 @@ export const tools = [
     }
   },
 
-  // 5. CONSULTAR COMENTARIOS
+  // 5. PEDIR CONFIRMACIÓN EN LOTE - Antes de CRUD múltiple
+  {
+    type: 'function',
+    function: {
+      name: 'pedir_confirmacion_lote',
+      description: 'Solicitar confirmación para MÚLTIPLES acciones simultáneas. Usar cuando el usuario pide modificar/crear/desactivar/duplicar VARIOS registros a la vez. Ejemplo: "modifica todas las reglas que digan X", "crea 2 promociones", "desactiva todos los precios".',
+      strict: true,
+      parameters: {
+        type: 'object',
+        properties: {
+          mensaje: {
+            type: 'string',
+            description: 'Resumen legible de TODAS las acciones. Listar cada una con \\n. Ej: "Voy a modificar 3 reglas:\\n\\n1. [ID:12] Cambiar valor a...\\n2. [ID:15] Cambiar valor a...\\n3. [ID:20] Cambiar valor a...\\n\\n¿Confirmas?"'
+          },
+          acciones: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                accion: {
+                  type: 'string',
+                  enum: ['agregar', 'modificar', 'desactivar', 'duplicar'],
+                  description: 'Tipo de acción. duplicar = copiar registro existente con cambios'
+                },
+                parametros: {
+                  type: 'object',
+                  properties: {
+                    categoria: { type: ['string', 'null'], description: 'Categoría del dato' },
+                    clave: { type: ['string', 'null'], description: 'Nombre/título del dato' },
+                    valor: { type: ['string', 'null'], description: 'Contenido del dato' },
+                    prioridad: { type: ['number', 'null'], description: 'Prioridad 1-6' },
+                    id_fila: { type: ['number', 'null'], description: 'ID del registro (para modificar/desactivar/duplicar)' },
+                    fecha_inicio: { type: ['string', 'null'], description: 'Fecha inicio YYYY-MM-DD' },
+                    fecha_caducidad: { type: ['string', 'null'], description: 'Fecha caducidad YYYY-MM-DD' },
+                    updates: {
+                      type: ['object', 'null'],
+                      description: 'Campos a actualizar (para modificar)',
+                      properties: {
+                        prioridad: { type: ['number', 'null'] },
+                        fecha_caducidad: { type: ['string', 'null'] },
+                        fecha_inicio: { type: ['string', 'null'] },
+                        valor: { type: ['string', 'null'] },
+                        clave: { type: ['string', 'null'] },
+                        categoria: { type: ['string', 'null'] }
+                      },
+                      required: ['prioridad', 'fecha_caducidad', 'fecha_inicio', 'valor', 'clave', 'categoria'],
+                      additionalProperties: false
+                    }
+                  },
+                  required: ['categoria', 'clave', 'valor', 'prioridad', 'id_fila', 'fecha_inicio', 'fecha_caducidad', 'updates'],
+                  additionalProperties: false
+                }
+              },
+              required: ['accion', 'parametros'],
+              additionalProperties: false
+            },
+            description: 'Array de acciones a ejecutar. Cada una con su accion y parametros.'
+          }
+        },
+        required: ['mensaje', 'acciones'],
+        additionalProperties: false
+      }
+    }
+  },
+
+  // 6. EJECUTAR ACCIONES EN LOTE - Después de confirmación
+  {
+    type: 'function',
+    function: {
+      name: 'ejecutar_acciones_lote',
+      description: 'Ejecutar MÚLTIPLES acciones YA CONFIRMADAS por el usuario. SOLO usar cuando el usuario dijo sí/ok/dale después de pedir_confirmacion_lote.',
+      strict: true,
+      parameters: {
+        type: 'object',
+        properties: {
+          mensaje: {
+            type: 'string',
+            description: 'Mensaje breve indicando que se procesan las acciones'
+          },
+          acciones: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                accion: {
+                  type: 'string',
+                  enum: ['agregar', 'modificar', 'desactivar', 'duplicar'],
+                  description: 'Tipo de acción'
+                },
+                parametros: {
+                  type: 'object',
+                  properties: {
+                    categoria: { type: ['string', 'null'] },
+                    clave: { type: ['string', 'null'] },
+                    valor: { type: ['string', 'null'] },
+                    prioridad: { type: ['number', 'null'] },
+                    id_fila: { type: ['number', 'null'] },
+                    fecha_inicio: { type: ['string', 'null'] },
+                    fecha_caducidad: { type: ['string', 'null'] },
+                    updates: {
+                      type: ['object', 'null'],
+                      properties: {
+                        prioridad: { type: ['number', 'null'] },
+                        fecha_caducidad: { type: ['string', 'null'] },
+                        fecha_inicio: { type: ['string', 'null'] },
+                        valor: { type: ['string', 'null'] },
+                        clave: { type: ['string', 'null'] },
+                        categoria: { type: ['string', 'null'] }
+                      },
+                      required: ['prioridad', 'fecha_caducidad', 'fecha_inicio', 'valor', 'clave', 'categoria'],
+                      additionalProperties: false
+                    }
+                  },
+                  required: ['categoria', 'clave', 'valor', 'prioridad', 'id_fila', 'fecha_inicio', 'fecha_caducidad', 'updates'],
+                  additionalProperties: false
+                }
+              },
+              required: ['accion', 'parametros'],
+              additionalProperties: false
+            },
+            description: 'Array de acciones confirmadas a ejecutar en paralelo'
+          }
+        },
+        required: ['mensaje', 'acciones'],
+        additionalProperties: false
+      }
+    }
+  },
+
+  // 7. CONSULTAR COMENTARIOS
   {
     type: 'function',
     function: {
@@ -465,6 +594,30 @@ export const toolResponseMapper = {
     ejecutar: {
       accion: args.accion,
       parametros: args.parametros
+    }
+  }),
+
+  /**
+   * Confirmación en lote (múltiples acciones)
+   */
+  pedir_confirmacion_lote: (args) => ({
+    tipo: 'confirmacion',
+    contenido: args.mensaje,
+    accionPendiente: {
+      tipo: 'lote',
+      acciones: args.acciones
+    }
+  }),
+
+  /**
+   * Ejecutar acciones en lote confirmadas
+   */
+  ejecutar_acciones_lote: (args) => ({
+    tipo: 'accion_lote_confirmada',
+    contenido: args.mensaje,
+    ejecutar: {
+      tipo: 'lote',
+      acciones: args.acciones
     }
   }),
 

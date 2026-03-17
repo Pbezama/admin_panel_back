@@ -64,13 +64,14 @@ export class AgentManager {
       const tiempoTotal = Date.now() - tiempoInicio
       console.log(`   📥 Respuesta en ${tiempoTotal}ms`)
 
-      // Procesar tool_calls
+      // Procesar tool_calls (soporta múltiples tools en una respuesta)
       if (message.tool_calls && message.tool_calls.length > 0) {
+        // Usar la primera tool_call como respuesta principal
         const toolCall = message.tool_calls[0]
         const functionName = toolCall.function.name
         const args = JSON.parse(toolCall.function.arguments)
 
-        console.log(`   🔧 Tool: ${functionName}`)
+        console.log(`   🔧 Tool: ${functionName} (${message.tool_calls.length} tool_call(s))`)
         console.log(`   📋 Args:`, JSON.stringify(args, null, 2))
 
         // Usar el mapper del agente
@@ -78,6 +79,18 @@ export class AgentManager {
         if (mapper) {
           const result = mapper(args)
           result.modoOrigen = this.currentAgentId
+
+          // Si hay tool_calls adicionales, agregarlas como contexto
+          if (message.tool_calls.length > 1) {
+            result.toolCallsAdicionales = message.tool_calls.slice(1).map(tc => {
+              const fn = tc.function.name
+              const a = JSON.parse(tc.function.arguments)
+              const m = agent.toolResponseMapper[fn]
+              return m ? m(a) : { tipo: 'error', contenido: `Tool "${fn}" sin mapper` }
+            })
+            console.log(`   📎 ${result.toolCallsAdicionales.length} tool_calls adicionales`)
+          }
+
           console.log(`   ✅ Tipo: ${result.tipo}`)
           return result
         } else {

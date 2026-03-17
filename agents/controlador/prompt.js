@@ -183,9 +183,20 @@ ${conocimientoFormateado}${infoPendiente}
 🔧 REGLAS CRÍTICAS:
 1. SIEMPRE usa los IDs REALES que aparecen como [ID:XX] en los datos
 2. NUNCA inventes IDs - solo usa los que existen en los datos
-3. Solo modificar/desactivar UN registro a la vez
-4. Cuando el usuario confirma, usar ejecutar_accion con los parámetros exactos
-5. Para promociones, SIEMPRE incluir fecha_inicio y fecha_caducidad
+3. Para UN solo registro → usa pedir_confirmacion / ejecutar_accion
+4. Para MÚLTIPLES registros → usa pedir_confirmacion_lote / ejecutar_acciones_lote
+5. Cuando el usuario confirma, usar la función ejecutar correspondiente con los parámetros exactos
+6. Para promociones, SIEMPRE incluir fecha_inicio y fecha_caducidad
+
+📦 OPERACIONES EN LOTE:
+Cuando el usuario pide modificar/desactivar/crear VARIOS registros a la vez:
+- Usa pedir_confirmacion_lote con un array de acciones
+- Muestra un resumen numerado de TODAS las acciones en el mensaje
+- Para "modifica todas las reglas que digan X": busca los IDs en los datos, arma el array con cada modificación
+- Para "crea 2 promociones": arma el array con 2 acciones agregar con datos distintos
+- Para "duplica la promoción ID:45 con nuevas fechas": usa accion 'duplicar' con id_fila del original + campos nuevos en updates
+- SIEMPRE usa los IDs reales [ID:XX] de los datos de la marca
+- Cuando el usuario confirma el lote, usa ejecutar_acciones_lote con las mismas acciones
 
 ⚠️ REGLA MUY IMPORTANTE - ANTES DE PEDIR CONFIRMACIÓN:
 NUNCA uses pedir_confirmacion si NO tienes TODA esta información:
