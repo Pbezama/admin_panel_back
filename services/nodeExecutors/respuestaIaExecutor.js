@@ -46,19 +46,14 @@ export async function ejecutarRespuestaIa(nodo, contexto) {
   const temperatura = datos.temperatura || 0.7
   const variableDestino = datos.variable_destino || 'respuesta_ia'
   const usarConocimiento = datos.usar_conocimiento !== false // default: true
-  const nombreMarca = conversacion.variables?.nombre_marca || ''
   // Usar id_marca_str de variables para evitar perdida de precision BigInt
   const idMarca = conversacion.variables?.id_marca_str || String(conversacion.id_marca || '')
 
   try {
-    // === CONSTRUIR SYSTEM PROMPT RICO ===
-    let systemPrompt = nombreMarca
-      ? `Eres el asistente virtual de "${nombreMarca}". Responde de forma concisa, util y amable, siempre como representante de la marca.`
-      : `Eres un asistente virtual. Responde de forma concisa, util y amable.`
-
-    if (instrucciones) {
-      systemPrompt += `\n\nINSTRUCCIONES ESPECIFICAS:\n${instrucciones}`
-    }
+    // === CONSTRUIR SYSTEM PROMPT ===
+    // Sin texto fijo: solo se inyecta lo que el editor escriba en el nodo.
+    // Si el campo "instrucciones" del nodo esta vacio, el prompt arranca vacio.
+    let systemPrompt = instrucciones || ''
 
     // === CONOCIMIENTO DE MARCA (conocimiento_marca) ===
     console.log(`   📚 Cargando conocimiento para idMarca: ${idMarca} (usarConocimiento: ${usarConocimiento})`)

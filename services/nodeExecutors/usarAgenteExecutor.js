@@ -80,33 +80,33 @@ async function cargarAgente(agenteId) {
  */
 function buildAgentPrompt(agente, conversacion, conocimientoMarca, conocimientoAgente, salidas) {
   const variables = conversacion.variables || {}
-  const nombreMarca = variables.nombre_marca || ''
 
+  // 1) Base del prompt: prompt_sistema_custom override total, o concatenacion
+  //    de los campos DB SIN inyectar etiquetas en español hardcodeadas.
+  //    Las etiquetas (PERSONALIDAD:, REGLAS:, etc.) deben venir dentro del
+  //    propio campo si el editor las quiere. Vacio = no se agrega nada.
   let prompt = ''
-
-  // Identidad
-  if (nombreMarca) {
-    prompt += `Eres "${agente.nombre}", el asistente IA de "${nombreMarca}".`
+  if (agente.prompt_sistema_custom) {
+    prompt = agente.prompt_sistema_custom
   } else {
-    prompt += `Eres "${agente.nombre}", un asistente IA.`
+    const partes = []
+    const campos = [
+      'nombre', 'descripcion', 'objetivo',
+      'personalidad', 'tono', 'idioma',
+      'instrucciones', 'reglas', 'restricciones',
+      'formato_respuesta', 'mensaje_fuera_tema', 'ejemplos'
+    ]
+    for (const c of campos) {
+      const v = agente[c]
+      if (!v) continue
+      if (c === 'tono' && agente.personalidad) continue
+      if (c === 'idioma' && v === 'espanol') continue
+      partes.push(String(v))
+    }
+    prompt = partes.join('\n\n')
   }
 
-  // Objetivo
-  if (agente.objetivo) {
-    prompt += `\n\nOBJETIVO PRINCIPAL:\n${agente.objetivo}`
-  }
-
-  // Tono
-  if (agente.tono) {
-    prompt += `\n\nTONO: Usa un tono ${agente.tono} en todas tus respuestas.`
-  }
-
-  // Instrucciones
-  if (agente.instrucciones) {
-    prompt += `\n\nINSTRUCCIONES:\n${agente.instrucciones}`
-  }
-
-  // Conocimiento de marca (SIEMPRE todo, sin filtrar por categorias)
+  // 2) Conocimiento de marca (datos, no texto fijo)
   if (conocimientoMarca && conocimientoMarca.length > 0) {
     const porCategoria = {}
     for (const k of conocimientoMarca) {
@@ -114,67 +114,65 @@ function buildAgentPrompt(agente, conversacion, conocimientoMarca, conocimientoA
       if (!porCategoria[cat]) porCategoria[cat] = []
       porCategoria[cat].push(k)
     }
-
     const prioridad = ['identidad', 'tono_voz', 'productos', 'servicios', 'precios', 'faq', 'horarios', 'ubicacion', 'politicas']
     const categoriasOrdenadas = [
       ...prioridad.filter(c => porCategoria[c]),
       ...Object.keys(porCategoria).filter(c => !prioridad.includes(c))
     ]
-
     let textoConocimiento = ''
     for (const cat of categoriasOrdenadas) {
       const items = porCategoria[cat]
       textoConocimiento += `\n[${cat.toUpperCase()}]\n`
       textoConocimiento += items.map(k => `- ${k.titulo}: ${k.contenido}`).join('\n')
     }
-
     if (textoConocimiento) {
-      prompt += `\n\n========== CONOCIMIENTO DE LA MARCA ==========\nUsa SIEMPRE esta informacion para responder. Si la respuesta esta aqui, usala. Si no esta, indica que no tienes esa informacion.${textoConocimiento}`
+      prompt += (prompt ? '\n\n' : '') + textoConocimiento.trim()
     }
   }
 
-  // Conocimiento propio del agente
+  // 3) Conocimiento propio del agente
   if (conocimientoAgente && conocimientoAgente.length > 0) {
-    let texto = ''
-    for (const k of conocimientoAgente) {
-      texto += `\n- ${k.titulo || 'Info'}: ${k.contenido}`
-    }
-    prompt += `\n\n========== CONOCIMIENTO DEL AGENTE ==========${texto}`
+    const texto = conocimientoAgente
+      .map(k => `- ${k.titulo || 'Info'}: ${k.contenido}`)
+      .join('\n')
+    prompt += (prompt ? '\n\n' : '') + texto
   }
 
-  // Variables del usuario
+  // 4) Variables del usuario (con label opcional desde DB)
   if (variables && Object.keys(variables).length > 0) {
     const varsTexto = Object.entries(variables)
       .filter(([k]) => !k.endsWith('_raw') && !['agente_activo_id', 'agente_activo_nombre', 'nombre_marca', 'id_marca_str'].includes(k))
       .map(([k, v]) => `${k}: ${v}`)
       .join('\n')
     if (varsTexto) {
-      prompt += `\n\n========== DATOS DEL USUARIO ==========\n${varsTexto}`
+      const labelVars = agente.label_variables || ''
+      const bloque = labelVars ? `${labelVars}\n${varsTexto}` : varsTexto
+      prompt += (prompt ? '\n\n' : '') + bloque
     }
   }
 
-  // Condiciones de cierre
-  if (agente.condiciones_cierre) {
-    prompt += `\n\nCONDICIONES DE CIERRE:\n${agente.condiciones_cierre}`
+  // 5) Cierre multi-turno: TODO viene de columnas DB editables.
+  //    Si los campos estan vacios, no se inyecta nada.
+  const instruccionesCierre = agente.instrucciones_cierre || ''
+  if (instruccionesCierre) {
+    prompt += (prompt ? '\n\n' : '') + instruccionesCierre
   }
-
-  // Instrucciones de cierre y salidas
-  prompt += `\n\n--- INSTRUCCIONES DE CIERRE ---`
-  prompt += `\nEsta es una conversacion multi-turno. Debes seguir conversando hasta cumplir tu objetivo.`
 
   if (salidas && salidas.length > 0) {
-    prompt += `\n\nSALIDAS DISPONIBLES - Cuando termines la conversacion, elige UNA de estas salidas que mejor represente el resultado:`
-    for (const s of salidas) {
-      prompt += `\n- "${s.id}": ${s.descripcion || s.id}`
-    }
-    prompt += `\n\nCuando la conversacion deba terminar, incluye exactamente [SALIDA:id_de_salida][FINALIZAR] al FINAL de tu mensaje.`
-    prompt += `\nEjemplo: ...tu respuesta aqui... [SALIDA:${salidas[0].id}][FINALIZAR]`
-  } else {
-    prompt += `\nCuando hayas CUMPLIDO tu objetivo o la conversacion deba terminar, incluye exactamente [FINALIZAR] al FINAL de tu mensaje.`
+    const listaSalidas = salidas
+      .map(s => `- "${s.id}": ${s.descripcion || s.id}`)
+      .join('\n')
+    const ejemplo = `[SALIDA:${salidas[0].id}][FINALIZAR]`
+    const plantilla = agente.plantilla_salidas || ''
+    const bloqueSalidas = plantilla
+      ? plantilla.replace('{salidas}', listaSalidas).replace('{ejemplo}', ejemplo)
+      : listaSalidas
+    prompt += (prompt ? '\n\n' : '') + bloqueSalidas
   }
 
-  prompt += `\nNO uses [FINALIZAR] si aun necesitas mas informacion o la conversacion debe continuar.`
-  prompt += `\n\nIMPORTANTE: Responde basandote en el conocimiento proporcionado. No inventes informacion. Si no sabes algo, indicalo. Responde de forma concisa y natural.`
+  if (agente.condiciones_cierre) {
+    prompt += (prompt ? '\n\n' : '') + agente.condiciones_cierre
+  }
 
   return prompt
 }
