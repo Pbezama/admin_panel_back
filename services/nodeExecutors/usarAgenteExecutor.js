@@ -81,13 +81,20 @@ async function cargarAgente(agenteId) {
 function buildAgentPrompt(agente, conversacion, conocimientoMarca, conocimientoAgente, salidas) {
   const variables = conversacion.variables || {}
 
+  // 0) Fecha actual (zona Chile) — sin esto el modelo alucina la fecha
+  //    desde URLs/artículos del conocimiento.
+  const fechaHoy = new Date().toLocaleDateString('es-CL', {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+    timeZone: 'America/Santiago'
+  })
+  let prompt = `Fecha y hora actual: ${fechaHoy}. Úsala si el usuario pregunta por el día, temporada u horarios.\n\n`
+
   // 1) Base del prompt: prompt_sistema_custom override total, o concatenacion
   //    de los campos DB SIN inyectar etiquetas en español hardcodeadas.
   //    Las etiquetas (PERSONALIDAD:, REGLAS:, etc.) deben venir dentro del
   //    propio campo si el editor las quiere. Vacio = no se agrega nada.
-  let prompt = ''
   if (agente.prompt_sistema_custom) {
-    prompt = agente.prompt_sistema_custom
+    prompt += agente.prompt_sistema_custom
   } else {
     const partes = []
     const campos = [
@@ -103,7 +110,7 @@ function buildAgentPrompt(agente, conversacion, conocimientoMarca, conocimientoA
       if (c === 'idioma' && v === 'espanol') continue
       partes.push(String(v))
     }
-    prompt = partes.join('\n\n')
+    prompt += partes.join('\n\n')
   }
 
   // 2) Conocimiento de marca (datos, no texto fijo)

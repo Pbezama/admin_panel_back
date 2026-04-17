@@ -26,13 +26,34 @@
     || document.getElementById('crecetec-chat')?.getAttribute('data-api-url')
     || (scriptSrc ? scriptSrc.replace('/api/webchat/widget.js', '') : '');
 
-  // Session ID persistente
+  // Session ID persistente con expiracion por inactividad
   const STORAGE_KEY = 'crecetec_chat_session';
   const MESSAGES_KEY = 'crecetec_chat_messages';
+  const ACTIVITY_KEY = 'crecetec_chat_last_activity';
+
+  // TTL configurable via <script data-session-ttl-minutes="30">. Default 30 min.
+  const ttlAttr = parseInt(scriptTag?.getAttribute('data-session-ttl-minutes') || '', 10);
+  const SESSION_TTL_MS = (Number.isFinite(ttlAttr) && ttlAttr > 0 ? ttlAttr : 30) * 60 * 1000;
+
+  // Si la ultima actividad supera el TTL, borrar sesion + historial
+  try {
+    const last = parseInt(localStorage.getItem(ACTIVITY_KEY) || '0', 10);
+    if (last && Date.now() - last > SESSION_TTL_MS) {
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(MESSAGES_KEY);
+      localStorage.removeItem(ACTIVITY_KEY);
+    }
+  } catch(e) {}
+
+  function touchActivity() {
+    try { localStorage.setItem(ACTIVITY_KEY, String(Date.now())); } catch(e) {}
+  }
+
   let SESSION_ID = localStorage.getItem(STORAGE_KEY);
   if (!SESSION_ID) {
     SESSION_ID = 'web_' + crypto.randomUUID();
     localStorage.setItem(STORAGE_KEY, SESSION_ID);
+    touchActivity();
   }
 
   let config = null;
@@ -53,6 +74,7 @@
     try {
       localStorage.setItem(MESSAGES_KEY, JSON.stringify(messages.slice(-100)));
     } catch(e) {}
+    touchActivity();
   }
 
   // ==========================================
@@ -92,6 +114,9 @@
       .ct-header-info { flex: 1; }
       .ct-header-title { font-size: 16px; font-weight: 600; }
       .ct-header-status { font-size: 12px; opacity: 0.85; }
+      .ct-clear { background: transparent; color: ${textColor}; border: none; cursor: pointer; opacity: 0.75; padding: 6px; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: opacity 0.15s, background 0.15s; }
+      .ct-clear:hover { opacity: 1; background: rgba(255,255,255,0.15); }
+      .ct-clear svg { width: 18px; height: 18px; fill: ${textColor}; }
 
       /* Mensajes */
       .ct-messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; background: #f7f8fa; }
@@ -232,6 +257,9 @@
             <div class="ct-header-title">${escape(config.titulo_chat || config.nombre_marca || 'Chat')}</div>
             <div class="ct-header-status" id="ctStatus">En linea</div>
           </div>
+          <button class="ct-clear" id="ctClear" title="Limpiar conversacion">
+            <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+          </button>
         </div>
         <div class="ct-messages" id="ctMessages"></div>
         <div class="ct-input-area" id="ctInputArea">
@@ -256,6 +284,30 @@
     const sendBtn = shadow.getElementById('ctSend');
     const statusEl = shadow.getElementById('ctStatus');
     const inputArea = shadow.getElementById('ctInputArea');
+    const clearBtn = shadow.getElementById('ctClear');
+
+    // Limpiar conversacion manualmente (util en PC publico)
+    clearBtn.addEventListener('click', function() {
+      if (!confirm('¿Borrar esta conversacion? Se iniciara una nueva.')) return;
+      messages = [];
+      lastMsgId = 0;
+      hasSentMessage = false;
+      stopPolling();
+      try {
+        localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem(MESSAGES_KEY);
+        localStorage.removeItem(ACTIVITY_KEY);
+      } catch(e) {}
+      SESSION_ID = 'web_' + crypto.randomUUID();
+      try { localStorage.setItem(STORAGE_KEY, SESSION_ID); } catch(e) {}
+      touchActivity();
+      if (config.mensaje_bienvenida) {
+        messages.push({ tipo: 'texto', contenido: config.mensaje_bienvenida, from: 'bot' });
+        saveMessages();
+      }
+      renderMessages(messagesEl);
+      scrollBottom(messagesEl);
+    });
 
     // Verificar horario
     if (isOutsideHours()) {
