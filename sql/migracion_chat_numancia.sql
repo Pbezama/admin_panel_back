@@ -155,6 +155,20 @@ CREATE INDEX IF NOT EXISTS idx_cn_dedup_fecha
 
 
 -- =====================================================
+-- 1.5 DESHABILITAR RLS (Supabase lo activa por default en tablas nuevas).
+-- El admin-panel-api valida auth a nivel app via JWT antes de tocar estas
+-- tablas, asi que RLS no aporta valor adicional. Sin esto, queries con
+-- anon/service-role pueden devolver 0 filas en producción.
+-- =====================================================
+
+ALTER TABLE chat_numancia_config              DISABLE ROW LEVEL SECURITY;
+ALTER TABLE chat_numancia_herramientas        DISABLE ROW LEVEL SECURITY;
+ALTER TABLE chat_numancia_historial           DISABLE ROW LEVEL SECURITY;
+ALTER TABLE chat_numancia_conversaciones      DISABLE ROW LEVEL SECURITY;
+ALTER TABLE chat_numancia_mensajes_procesados DISABLE ROW LEVEL SECURITY;
+
+
+-- =====================================================
 -- 2. INSERTAR CONFIGURACION NUMANCIA
 -- =====================================================
 
